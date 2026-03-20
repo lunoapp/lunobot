@@ -3,7 +3,10 @@ import { Api, Bot } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
+import { processImage } from '../image.js';
 import { logger } from '../logger.js';
+import { transcribeAudioBuffer } from '../transcription.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -11,6 +14,21 @@ import {
   OnInboundMessage,
   RegisteredGroup,
 } from '../types.js';
+
+/**
+ * Download a file from Telegram using the Bot API.
+ */
+async function downloadTelegramFile(
+  api: Api,
+  botToken: string,
+  fileId: string,
+): Promise<Buffer> {
+  const file = await api.getFile(fileId);
+  const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
 
 export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
@@ -199,9 +217,55 @@ export class TelegramChannel implements Channel {
       });
     };
 
-    this.bot.on('message:photo', (ctx: any) => storeNonText(ctx, '[Photo]'));
+    // Handle photos — download, resize, and pass as image reference
+    this.bot.on('message:photo', async (ctx: any) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      try {
+        // Telegram provides multiple sizes — pick the largest
+        const photos = ctx.message.photo;
+        const largest = photos[photos.length - 1];
+        const buffer = await downloadTelegramFile(this.bot!.api, this.botToken, largest.file_id);
+        const groupDir = resolveGroupFolderPath(group.folder);
+        const caption = ctx.message.caption || '';
+        const result = await processImage(buffer, groupDir, caption);
+
+        if (result) {
+          storeNonText(ctx, result.content.replace(ctx.message.caption || '', '').trim());
+        } else {
+          storeNonText(ctx, '[Photo]');
+        }
+      } catch (err) {
+        logger.error({ err }, 'Failed to process Telegram photo');
+        storeNonText(ctx, '[Photo]');
+      }
+    });
+
     this.bot.on('message:video', (ctx: any) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', (ctx: any) => storeNonText(ctx, '[Voice message]'));
+
+    // Handle voice messages — download and transcribe with local whisper
+    this.bot.on('message:voice', async (ctx: any) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      try {
+        const fileId = ctx.message.voice.file_id;
+        const buffer = await downloadTelegramFile(this.bot!.api, this.botToken, fileId);
+        const transcript = await transcribeAudioBuffer(buffer);
+
+        if (transcript && !transcript.includes('unavailable')) {
+          storeNonText(ctx, `[Voice: ${transcript}]`);
+        } else {
+          storeNonText(ctx, '[Voice Message - transcription unavailable]');
+        }
+      } catch (err) {
+        logger.error({ err }, 'Failed to transcribe Telegram voice message');
+        storeNonText(ctx, '[Voice Message - transcription failed]');
+      }
+    });
     this.bot.on('message:audio', (ctx: any) => storeNonText(ctx, '[Audio]'));
     this.bot.on('message:document', (ctx: any) => {
       const name = ctx.message.document?.file_name || 'file';
@@ -211,8 +275,12 @@ export class TelegramChannel implements Channel {
       const emoji = ctx.message.sticker?.emoji || '';
       storeNonText(ctx, `[Sticker ${emoji}]`);
     });
-    this.bot.on('message:location', (ctx: any) => storeNonText(ctx, '[Location]'));
-    this.bot.on('message:contact', (ctx: any) => storeNonText(ctx, '[Contact]'));
+    this.bot.on('message:location', (ctx: any) =>
+      storeNonText(ctx, '[Location]'),
+    );
+    this.bot.on('message:contact', (ctx: any) =>
+      storeNonText(ctx, '[Contact]'),
+    );
 
     // Handle errors gracefully
     this.bot.catch((err: any) => {

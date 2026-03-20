@@ -24,6 +24,23 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
+// Mock group-folder (used by photo handler)
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn(() => '/tmp/test-group'),
+}));
+
+// Mock image processing (used by photo handler)
+vi.mock('../image.js', () => ({
+  processImage: vi.fn(() =>
+    Promise.resolve({ content: '[Image: attachments/img-test.jpg]', relativePath: 'attachments/img-test.jpg' }),
+  ),
+}));
+
+// Mock transcription (used by voice handler)
+vi.mock('../transcription.js', () => ({
+  transcribeAudioBuffer: vi.fn(() => Promise.resolve('Dies ist ein Test')),
+}));
+
 // --- Grammy mock ---
 
 type Handler = (...args: any[]) => any;
@@ -40,6 +57,7 @@ vi.mock('grammy', () => ({
     api = {
       sendMessage: vi.fn().mockResolvedValue(undefined),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
+      getFile: vi.fn().mockResolvedValue({ file_path: 'photos/test.jpg' }),
     };
 
     constructor(token: string) {
@@ -153,6 +171,8 @@ function createMediaCtx(overrides: {
       date: overrides.date ?? Math.floor(Date.now() / 1000),
       message_id: overrides.messageId ?? 1,
       caption: overrides.caption,
+      photo: [{ file_id: 'photo-small', width: 100 }, { file_id: 'photo-large', width: 800 }],
+      voice: { file_id: 'voice-123', duration: 5 },
       ...(overrides.extra || {}),
     },
     me: { username: 'andy_ai_bot' },
@@ -181,10 +201,16 @@ async function triggerMediaMessage(
 describe('TelegramChannel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mock global fetch for file downloads
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+    }));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // --- Connection lifecycle ---
@@ -554,7 +580,25 @@ describe('TelegramChannel', () => {
   // --- Non-text messages ---
 
   describe('non-text messages', () => {
-    it('stores photo with placeholder', async () => {
+    it('processes photo and stores image reference', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({});
+      await triggerMediaMessage('message:photo', ctx);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({
+          content: expect.stringContaining('[Image:'),
+        }),
+      );
+    });
+
+    it('falls back to [Photo] on download error', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network')));
+
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -565,20 +609,6 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({ content: '[Photo]' }),
-      );
-    });
-
-    it('stores photo with caption', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      const ctx = createMediaCtx({ caption: 'Look at this' });
-      await triggerMediaMessage('message:photo', ctx);
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({ content: '[Photo] Look at this' }),
       );
     });
 
@@ -596,7 +626,7 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('stores voice message with placeholder', async () => {
+    it('transcribes voice message with local whisper', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -606,7 +636,25 @@ describe('TelegramChannel', () => {
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Voice message]' }),
+        expect.objectContaining({ content: '[Voice: Dies ist ein Test]' }),
+      );
+    });
+
+    it('falls back on voice transcription failure', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network')));
+
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({});
+      await triggerMediaMessage('message:voice', ctx);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({
+          content: expect.stringContaining('[Voice Message'),
+        }),
       );
     });
 
