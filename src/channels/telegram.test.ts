@@ -32,7 +32,10 @@ vi.mock('../group-folder.js', () => ({
 // Mock image processing (used by photo handler)
 vi.mock('../image.js', () => ({
   processImage: vi.fn(() =>
-    Promise.resolve({ content: '[Image: attachments/img-test.jpg]', relativePath: 'attachments/img-test.jpg' }),
+    Promise.resolve({
+      content: '[Image: attachments/img-test.jpg]',
+      relativePath: 'attachments/img-test.jpg',
+    }),
   ),
 }));
 
@@ -58,6 +61,7 @@ vi.mock('grammy', () => ({
       sendMessage: vi.fn().mockResolvedValue(undefined),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
       getFile: vi.fn().mockResolvedValue({ file_path: 'photos/test.jpg' }),
+      sendPhoto: vi.fn().mockResolvedValue(undefined),
     };
 
     constructor(token: string) {
@@ -171,7 +175,10 @@ function createMediaCtx(overrides: {
       date: overrides.date ?? Math.floor(Date.now() / 1000),
       message_id: overrides.messageId ?? 1,
       caption: overrides.caption,
-      photo: [{ file_id: 'photo-small', width: 100 }, { file_id: 'photo-large', width: 800 }],
+      photo: [
+        { file_id: 'photo-small', width: 100 },
+        { file_id: 'photo-large', width: 800 },
+      ],
       voice: { file_id: 'voice-123', duration: 5 },
       ...(overrides.extra || {}),
     },
@@ -202,10 +209,13 @@ describe('TelegramChannel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock global fetch for file downloads
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+      }),
+    );
   });
 
   afterEach(() => {
@@ -846,6 +856,50 @@ describe('TelegramChannel', () => {
       await channel.sendMessage('tg:100200300', 'No bot');
 
       // No error, no API call
+    });
+  });
+
+  // --- sendImage ---
+
+  describe('sendImage', () => {
+    it('sends image via bot API with URL', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendImage('tg:100200300', 'https://example.com/image.jpg', 'A photo');
+
+      expect(currentBot().api.sendPhoto).toHaveBeenCalledWith(
+        '100200300',
+        'https://example.com/image.jpg',
+        { caption: 'A photo', parse_mode: 'Markdown' },
+      );
+    });
+
+    it('sends image without caption', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendImage('tg:100200300', 'https://example.com/image.jpg');
+
+      expect(currentBot().api.sendPhoto).toHaveBeenCalledWith(
+        '100200300',
+        'https://example.com/image.jpg',
+        { caption: undefined, parse_mode: 'Markdown' },
+      );
+    });
+
+    it('handles send failure gracefully', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      currentBot().api.sendPhoto.mockRejectedValueOnce(new Error('Failed'));
+
+      await expect(
+        channel.sendImage('tg:100200300', 'https://example.com/img.jpg'),
+      ).resolves.toBeUndefined();
     });
   });
 

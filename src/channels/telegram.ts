@@ -1,5 +1,6 @@
+import fs from 'fs';
 import https from 'https';
-import { Api, Bot } from 'grammy';
+import { Api, Bot, InputFile } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -227,13 +228,20 @@ export class TelegramChannel implements Channel {
         // Telegram provides multiple sizes — pick the largest
         const photos = ctx.message.photo;
         const largest = photos[photos.length - 1];
-        const buffer = await downloadTelegramFile(this.bot!.api, this.botToken, largest.file_id);
+        const buffer = await downloadTelegramFile(
+          this.bot!.api,
+          this.botToken,
+          largest.file_id,
+        );
         const groupDir = resolveGroupFolderPath(group.folder);
         const caption = ctx.message.caption || '';
         const result = await processImage(buffer, groupDir, caption);
 
         if (result) {
-          storeNonText(ctx, result.content.replace(ctx.message.caption || '', '').trim());
+          storeNonText(
+            ctx,
+            result.content.replace(ctx.message.caption || '', '').trim(),
+          );
         } else {
           storeNonText(ctx, '[Photo]');
         }
@@ -253,7 +261,11 @@ export class TelegramChannel implements Channel {
 
       try {
         const fileId = ctx.message.voice.file_id;
-        const buffer = await downloadTelegramFile(this.bot!.api, this.botToken, fileId);
+        const buffer = await downloadTelegramFile(
+          this.bot!.api,
+          this.botToken,
+          fileId,
+        );
         const transcript = await transcribeAudioBuffer(buffer);
 
         if (transcript && !transcript.includes('unavailable')) {
@@ -330,6 +342,27 @@ export class TelegramChannel implements Channel {
       logger.info({ jid, length: text.length }, 'Telegram message sent');
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Telegram message');
+    }
+  }
+
+  async sendImage(jid: string, imagePath: string, caption?: string): Promise<void> {
+    if (!this.bot) {
+      logger.warn('Telegram bot not initialized');
+      return;
+    }
+
+    try {
+      const numericId = jid.replace(/^tg:/, '');
+      const source = imagePath.startsWith('http')
+        ? imagePath
+        : new InputFile(fs.createReadStream(imagePath));
+      await this.bot.api.sendPhoto(numericId, source, {
+        caption,
+        parse_mode: 'Markdown',
+      });
+      logger.info({ jid, imagePath }, 'Telegram image sent');
+    } catch (err) {
+      logger.error({ jid, imagePath, err }, 'Failed to send Telegram image');
     }
   }
 
