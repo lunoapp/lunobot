@@ -27,6 +27,7 @@ import {
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
+import { readEnvFile } from './env.js';
 import { RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
@@ -212,9 +213,21 @@ function buildVolumeMounts(
   return mounts;
 }
 
+/**
+ * Extra environment variables to pass through to main-group containers.
+ * These are read from .env on the host and injected via -e flags.
+ * Only main-group containers receive these (untrusted groups never see secrets).
+ */
+const PASSTHROUGH_ENV_KEYS = [
+  'CF_ACCESS_CLIENT_ID',
+  'CF_ACCESS_CLIENT_SECRET',
+  'TEABLE_ACCESS_TOKEN',
+];
+
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  isMain: boolean = false,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -236,6 +249,16 @@ function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Pass extra env vars to main-group containers only
+  if (isMain && PASSTHROUGH_ENV_KEYS.length > 0) {
+    const extraEnv = readEnvFile(PASSTHROUGH_ENV_KEYS);
+    for (const key of PASSTHROUGH_ENV_KEYS) {
+      if (extraEnv[key]) {
+        args.push('-e', `${key}=${extraEnv[key]}`);
+      }
+    }
   }
 
   // Runtime-specific args for host gateway resolution
@@ -278,7 +301,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = buildContainerArgs(mounts, containerName, input.isMain);
 
   logger.debug(
     {
@@ -507,11 +530,7 @@ export async function runContainerAgent(
         // Full input is only included at verbose level to avoid
         // persisting user conversation content on every non-zero exit.
         if (isVerbose) {
-          logLines.push(
-            `=== Input ===`,
-            JSON.stringify(input, null, 2),
-            ``,
-          );
+          logLines.push(`=== Input ===`, JSON.stringify(input, null, 2), ``);
         } else {
           logLines.push(
             `=== Input Summary ===`,
