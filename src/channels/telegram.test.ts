@@ -867,7 +867,11 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      await channel.sendImage('tg:100200300', 'https://example.com/image.jpg', 'A photo');
+      await channel.sendImage(
+        'tg:100200300',
+        'https://example.com/image.jpg',
+        'A photo',
+      );
 
       expect(currentBot().api.sendPhoto).toHaveBeenCalledWith(
         '100200300',

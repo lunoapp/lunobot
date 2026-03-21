@@ -12,7 +12,11 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  sendImage?: (jid: string, imagePath: string, caption?: string) => Promise<void>;
+  sendImage?: (
+    jid: string,
+    imagePath: string,
+    caption?: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -77,8 +81,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
               const targetGroup = registeredGroups[data.chatJid];
               const authorized =
-                isMain ||
-                (targetGroup && targetGroup.folder === sourceGroup);
+                isMain || (targetGroup && targetGroup.folder === sourceGroup);
 
               if (!authorized && data.chatJid) {
                 logger.warn(
@@ -91,7 +94,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   { chatJid: data.chatJid, sourceGroup },
                   'IPC message sent',
                 );
-              } else if (data.type === 'image' && data.chatJid && data.image && deps.sendImage) {
+              } else if (
+                data.type === 'image' &&
+                data.chatJid &&
+                data.image &&
+                deps.sendImage
+              ) {
                 await deps.sendImage(data.chatJid, data.image, data.caption);
                 logger.info(
                   { chatJid: data.chatJid, sourceGroup },
