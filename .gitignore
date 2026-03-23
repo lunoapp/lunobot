@@ -12,6 +12,9 @@ logs/
 # Groups - track global CLAUDE.md (bot personality/config), ignore runtime data
 groups/*
 !groups/CLAUDE.md
+!groups/global/
+groups/global/*
+!groups/global/CLAUDE.md
 
 # Secrets
 *.keys.json
