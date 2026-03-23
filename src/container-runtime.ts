@@ -30,14 +30,20 @@ function detectProxyBindHost(): string {
   // Check /proc filesystem, not env vars — WSL_DISTRO_NAME isn't set under systemd.
   if (fs.existsSync('/proc/sys/fs/binfmt_misc/WSLInterop')) return '127.0.0.1';
 
-  // Bare-metal Linux: bind to the docker0 bridge IP instead of 0.0.0.0
+  // Bare-metal Linux: bind to the docker0 bridge IP so containers can reach it
   const ifaces = os.networkInterfaces();
   const docker0 = ifaces['docker0'];
   if (docker0) {
     const ipv4 = docker0.find((a) => a.family === 'IPv4');
     if (ipv4) return ipv4.address;
   }
-  return '0.0.0.0';
+
+  // Fallback to localhost — never bind to 0.0.0.0 (would expose credentials to network)
+  logger.warn(
+    'docker0 bridge not found, binding credential proxy to 127.0.0.1. ' +
+      'Containers may not reach the proxy. Set CREDENTIAL_PROXY_HOST explicitly.',
+  );
+  return '127.0.0.1';
 }
 
 /** CLI args needed for the container to resolve the host gateway. */
@@ -97,6 +103,29 @@ export function ensureContainerRuntimeRunning(): void {
       '╚════════════════════════════════════════════════════════════════╝\n',
     );
     throw new Error('Container runtime is required but failed to start');
+  }
+}
+
+/** Docker network name for NanoClaw containers (isolates from other services). */
+export const CONTAINER_NETWORK = 'nanoclaw-internal';
+
+/** Ensure the isolated Docker network exists, creating it if needed. */
+export function ensureContainerNetwork(): void {
+  try {
+    execSync(
+      `${CONTAINER_RUNTIME_BIN} network inspect ${CONTAINER_NETWORK}`,
+      { stdio: 'pipe' },
+    );
+  } catch {
+    try {
+      execSync(
+        `${CONTAINER_RUNTIME_BIN} network create --driver bridge ${CONTAINER_NETWORK}`,
+        { stdio: 'pipe' },
+      );
+      logger.info({ network: CONTAINER_NETWORK }, 'Created isolated container network');
+    } catch (err) {
+      logger.warn({ err }, 'Failed to create container network, using default');
+    }
   }
 }
 

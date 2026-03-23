@@ -23,6 +23,7 @@ import {
 } from './container-runner.js';
 import {
   cleanupOrphans,
+  ensureContainerNetwork,
   ensureContainerRuntimeRunning,
   PROXY_BIND_HOST,
 } from './container-runtime.js';
@@ -476,6 +477,7 @@ function recoverPendingMessages(): void {
 
 function ensureContainerSystemRunning(): void {
   ensureContainerRuntimeRunning();
+  ensureContainerNetwork();
   cleanupOrphans();
 }
 

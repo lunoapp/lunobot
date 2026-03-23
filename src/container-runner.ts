@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -20,6 +21,7 @@ import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
   CONTAINER_HOST_GATEWAY,
+  CONTAINER_NETWORK,
   CONTAINER_RUNTIME_BIN,
   hostGatewayArgs,
   readonlyMountArgs,
@@ -168,9 +170,9 @@ function buildVolumeMounts(
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = resolveGroupIpcPath(group.folder);
-  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
-  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
-  fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true, mode: 0o700 });
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -215,9 +217,9 @@ function buildVolumeMounts(
 }
 
 /**
- * Extra environment variables to pass through to main-group containers.
- * These are read from .env on the host and injected via -e flags.
- * Only main-group containers receive these (untrusted groups never see secrets).
+ * Extra credentials to pass to main-group containers.
+ * Written to a temp file and mounted read-only (not passed via -e flags,
+ * which would be visible in docker inspect and /proc/environ).
  */
 const PASSTHROUGH_ENV_KEYS = [
   'CF_ACCESS_CLIENT_ID',
@@ -226,11 +228,39 @@ const PASSTHROUGH_ENV_KEYS = [
   'REPLICATE_API_TOKEN',
 ];
 
+/**
+ * Write credentials to a temp file that gets mounted read-only into the container.
+ * The container entrypoint sources this file. Returns the temp file path (caller must clean up).
+ */
+function writeCredentialsFile(keys: string[]): string | null {
+  const env = readEnvFile(keys);
+  const lines: string[] = [];
+  for (const key of keys) {
+    if (env[key]) {
+      lines.push('export ' + key + '="' + env[key] + '"');
+    }
+  }
+  if (lines.length === 0) return null;
+
+  const tmpPath = path.join(
+    os.tmpdir(),
+    'nanoclaw-creds-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.sh',
+  );
+  fs.writeFileSync(tmpPath, lines.join('\n') + '\n', { mode: 0o600 });
+  return tmpPath;
+}
+
+interface ContainerArgsResult {
+  args: string[];
+  credentialsFile: string | null;
+}
+
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   isMain: boolean = false,
-): string[] {
+): ContainerArgsResult {
+  let credentialsFile: string | null = null;
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
@@ -253,15 +283,20 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
-  // Pass extra env vars to main-group containers only
+  // Mount credentials as read-only file instead of passing via -e flags.
+  // This prevents exposure via `docker inspect` or `/proc/*/environ`.
   if (isMain && PASSTHROUGH_ENV_KEYS.length > 0) {
-    const extraEnv = readEnvFile(PASSTHROUGH_ENV_KEYS);
-    for (const key of PASSTHROUGH_ENV_KEYS) {
-      if (extraEnv[key]) {
-        args.push('-e', `${key}=${extraEnv[key]}`);
-      }
+    credentialsFile = writeCredentialsFile(PASSTHROUGH_ENV_KEYS);
+    if (credentialsFile) {
+      args.push(
+        ...readonlyMountArgs(credentialsFile, '/workspace/.credentials.sh'),
+      );
+      args.push('-e', 'NANOCLAW_CREDENTIALS_FILE=/workspace/.credentials.sh');
     }
   }
+
+  // Use isolated network to prevent containers from reaching other services
+  args.push('--network', CONTAINER_NETWORK);
 
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
@@ -286,7 +321,7 @@ function buildContainerArgs(
 
   args.push(CONTAINER_IMAGE);
 
-  return args;
+  return { args, credentialsFile };
 }
 
 export async function runContainerAgent(
@@ -303,7 +338,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName, input.isMain);
+  const { args: containerArgs, credentialsFile } = buildContainerArgs(mounts, containerName, input.isMain);
 
   logger.debug(
     {
@@ -459,6 +494,10 @@ export async function runContainerAgent(
 
     container.on('close', (code) => {
       clearTimeout(timeout);
+      // Clean up temp credentials file
+      if (credentialsFile) {
+        try { fs.unlinkSync(credentialsFile); } catch { /* already cleaned */ }
+      }
       const duration = Date.now() - startTime;
 
       if (timedOut) {
