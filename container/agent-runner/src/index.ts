@@ -463,13 +463,12 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
-        ...(process.env.GOOGLE_CLIENT_ID ? {
+        ...(process.env.SERVICE_ACCOUNT_PATH ? {
           'google-docs': {
             command: 'npx',
             args: ['-y', '@a-bonus/google-docs-mcp'],
             env: {
-              GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
-              GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+              SERVICE_ACCOUNT_PATH: process.env.SERVICE_ACCOUNT_PATH || '',
             },
           },
         } : {}),
