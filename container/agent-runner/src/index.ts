@@ -446,7 +446,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__google-docs__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -462,6 +463,16 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(process.env.GOOGLE_CLIENT_ID ? {
+          'google-docs': {
+            command: 'npx',
+            args: ['-y', '@a-bonus/google-docs-mcp'],
+            env: {
+              GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+              GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+            },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
