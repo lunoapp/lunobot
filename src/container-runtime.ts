@@ -136,16 +136,25 @@ export function ensureContainerNetwork(): void {
 export function cleanupStaleCredentials(): void {
   try {
     const tmpDir = os.tmpdir();
-    const files = fs.readdirSync(tmpDir).filter((f) => f.startsWith('nanoclaw-creds-'));
+    const files = fs
+      .readdirSync(tmpDir)
+      .filter((f) => f.startsWith('nanoclaw-creds-'));
     for (const file of files) {
       try {
         fs.unlinkSync(path.join(tmpDir, file));
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
     }
     if (files.length > 0) {
-      logger.info({ count: files.length }, 'Cleaned up stale credentials files');
+      logger.info(
+        { count: files.length },
+        'Cleaned up stale credentials files',
+      );
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Kill orphaned NanoClaw containers from previous runs. */

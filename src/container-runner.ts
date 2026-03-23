@@ -728,7 +728,11 @@ export async function runContainerAgent(
       clearTimeout(timeout);
       // Clean up temp credentials file
       if (credentialsFile) {
-        try { fs.unlinkSync(credentialsFile); } catch { /* best effort */ }
+        try {
+          fs.unlinkSync(credentialsFile);
+        } catch {
+          /* best effort */
+        }
       }
       logger.error(
         { group: group.name, containerName, error: err },
