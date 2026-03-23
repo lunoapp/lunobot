@@ -100,7 +100,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 data.image &&
                 deps.sendImage
               ) {
-                await deps.sendImage(data.chatJid, data.image, data.caption);
+                // Translate container paths to host paths
+                let imagePath = data.image;
+                if (imagePath.startsWith('/workspace/group/')) {
+                  const groupFolder = data.groupFolder || sourceGroup;
+                  imagePath = path.join(
+                    process.cwd(),
+                    'groups',
+                    groupFolder,
+                    imagePath.replace('/workspace/group/', ''),
+                  );
+                }
+                await deps.sendImage(data.chatJid, imagePath, data.caption);
                 logger.info(
                   { chatJid: data.chatJid, sourceGroup },
                   'IPC image sent',
