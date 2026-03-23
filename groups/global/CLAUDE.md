@@ -111,13 +111,15 @@ curl -s \
 - Erklären was luno ist in jedem Post
 - Generische Motivations-Sätze
 
-## Zugriff auf Dateien
+## Google Drive / Google Docs
 
-| Pfad im Container | Inhalt |
-|-------------------|--------|
-| `/workspace/extra/luno/` | luno-Codebase |
-| `/workspace/extra/luno-gdrive/` | Google Drive: luno-Ordner (Marketing, Business) |
-| `/workspace/extra/luno-gdrive/Marketing/` | Marketing-Assets (Instagram, LinkedIn, Sources, Brand) |
+Du hast Zugriff auf Google Drive und Google Docs via MCP-Tools (`mcp__google-docs__*`).
+
+**WICHTIG: Greife NUR auf den luno-Ordner und dessen Inhalte zu.** Kein Zugriff auf andere Ordner, Dateien oder Docs außerhalb von luno. Der luno-Ordner enthält:
+- `Marketing/` — Instagram, LinkedIn, Sources, Brand Assets
+- `Business/` — Geschäftsdokumente
+
+Bei Suchanfragen immer auf den luno-Ordner einschränken.
 
 ## luno-Projekt Skills
 
