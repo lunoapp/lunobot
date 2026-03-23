@@ -23,6 +23,7 @@ import {
 } from './container-runner.js';
 import {
   cleanupOrphans,
+  cleanupStaleCredentials,
   ensureContainerNetwork,
   ensureContainerRuntimeRunning,
   PROXY_BIND_HOST,
@@ -479,6 +480,7 @@ function ensureContainerSystemRunning(): void {
   ensureContainerRuntimeRunning();
   ensureContainerNetwork();
   cleanupOrphans();
+  cleanupStaleCredentials();
 }
 
 async function main(): Promise<void> {

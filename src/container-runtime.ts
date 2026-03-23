@@ -5,6 +5,7 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
 
 import { logger } from './logger.js';
 
@@ -112,21 +113,39 @@ export const CONTAINER_NETWORK = 'nanoclaw-internal';
 /** Ensure the isolated Docker network exists, creating it if needed. */
 export function ensureContainerNetwork(): void {
   try {
-    execSync(
-      `${CONTAINER_RUNTIME_BIN} network inspect ${CONTAINER_NETWORK}`,
-      { stdio: 'pipe' },
-    );
+    execSync(`${CONTAINER_RUNTIME_BIN} network inspect ${CONTAINER_NETWORK}`, {
+      stdio: 'pipe',
+    });
   } catch {
     try {
       execSync(
         `${CONTAINER_RUNTIME_BIN} network create --driver bridge ${CONTAINER_NETWORK}`,
         { stdio: 'pipe' },
       );
-      logger.info({ network: CONTAINER_NETWORK }, 'Created isolated container network');
+      logger.info(
+        { network: CONTAINER_NETWORK },
+        'Created isolated container network',
+      );
     } catch (err) {
       logger.warn({ err }, 'Failed to create container network, using default');
     }
   }
+}
+
+/** Clean up stale credentials temp files from previous runs. */
+export function cleanupStaleCredentials(): void {
+  try {
+    const tmpDir = os.tmpdir();
+    const files = fs.readdirSync(tmpDir).filter((f) => f.startsWith('nanoclaw-creds-'));
+    for (const file of files) {
+      try {
+        fs.unlinkSync(path.join(tmpDir, file));
+      } catch { /* best effort */ }
+    }
+    if (files.length > 0) {
+      logger.info({ count: files.length }, 'Cleaned up stale credentials files');
+    }
+  } catch { /* ignore */ }
 }
 
 /** Kill orphaned NanoClaw containers from previous runs. */

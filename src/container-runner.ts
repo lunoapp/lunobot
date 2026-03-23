@@ -170,9 +170,18 @@ function buildVolumeMounts(
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = resolveGroupIpcPath(group.folder);
-  fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true, mode: 0o700 });
-  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true, mode: 0o700 });
-  fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.join(groupIpcDir, 'messages'), {
+    recursive: true,
+    mode: 0o700,
+  });
+  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), {
+    recursive: true,
+    mode: 0o700,
+  });
+  fs.mkdirSync(path.join(groupIpcDir, 'input'), {
+    recursive: true,
+    mode: 0o700,
+  });
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -237,14 +246,20 @@ function writeCredentialsFile(keys: string[]): string | null {
   const lines: string[] = [];
   for (const key of keys) {
     if (env[key]) {
-      lines.push('export ' + key + '="' + env[key] + '"');
+      // Single-quote prevents shell interpretation ($, `, \, etc.)
+      const escaped = env[key].replace(/'/g, "'\\''");
+      lines.push('export ' + key + "='" + escaped + "'");
     }
   }
   if (lines.length === 0) return null;
 
   const tmpPath = path.join(
     os.tmpdir(),
-    'nanoclaw-creds-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.sh',
+    'nanoclaw-creds-' +
+      Date.now() +
+      '-' +
+      Math.random().toString(36).slice(2) +
+      '.sh',
   );
   fs.writeFileSync(tmpPath, lines.join('\n') + '\n', { mode: 0o600 });
   return tmpPath;
@@ -338,7 +353,11 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const { args: containerArgs, credentialsFile } = buildContainerArgs(mounts, containerName, input.isMain);
+  const { args: containerArgs, credentialsFile } = buildContainerArgs(
+    mounts,
+    containerName,
+    input.isMain,
+  );
 
   logger.debug(
     {
@@ -496,7 +515,11 @@ export async function runContainerAgent(
       clearTimeout(timeout);
       // Clean up temp credentials file
       if (credentialsFile) {
-        try { fs.unlinkSync(credentialsFile); } catch { /* already cleaned */ }
+        try {
+          fs.unlinkSync(credentialsFile);
+        } catch {
+          /* already cleaned */
+        }
       }
       const duration = Date.now() - startTime;
 
@@ -703,6 +726,10 @@ export async function runContainerAgent(
 
     container.on('error', (err) => {
       clearTimeout(timeout);
+      // Clean up temp credentials file
+      if (credentialsFile) {
+        try { fs.unlinkSync(credentialsFile); } catch { /* best effort */ }
+      }
       logger.error(
         { group: group.name, containerName, error: err },
         'Container spawn error',
