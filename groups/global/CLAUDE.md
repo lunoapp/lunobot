@@ -11,7 +11,7 @@ luno (immer lowercase!) ist ein Marktplatz für Yogaraumvermietung. Studios zeig
 - **LinkedIn:** Jan Tammen (persönliches Profil)
 - **Stadt:** Leipzig (erster Markt)
 - **Status:** Pre-Launch, erste Version in Entwicklung
-- **Codename Codebase:** matspace (Arbeitstitel)
+- **Codebase:** `luno` (GitHub: lunoapp/luno)
 
 ### Das Team
 
@@ -115,13 +115,13 @@ curl -s \
 
 | Pfad im Container | Inhalt |
 |-------------------|--------|
-| `/workspace/extra/matspace/` | luno-Codebase (matspace) |
+| `/workspace/extra/luno/` | luno-Codebase |
 | `/workspace/extra/luno-gdrive/` | Google Drive: luno-Ordner (Marketing, Business) |
 | `/workspace/extra/luno-gdrive/Marketing/` | Marketing-Assets (Instagram, LinkedIn, Sources, Brand) |
 
 ## luno-Projekt Skills
 
-Das luno-Projekt liegt unter `/workspace/extra/matspace/`. Dort findest du unter `.claude/skills/` detaillierte Anleitungen:
+Das luno-Projekt liegt unter `/workspace/extra/luno/`. Dort findest du unter `.claude/skills/` detaillierte Anleitungen:
 
 | Skill | Zweck |
 |-------|-------|

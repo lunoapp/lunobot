@@ -50,7 +50,7 @@ Research date: 2026-03-20
 ### luno-specific
 
 - Account: Instagram @hi.luno (Business account needed)
-- Media storage: Supabase Storage (already in use for matspace) or a public URL
+- Media storage: Supabase Storage (already in use for luno) or a public URL
 
 ---
 
@@ -94,7 +94,7 @@ Research date: 2026-03-20
 
 ## Email (Resend)
 
-- Already used in matspace for transactional emails
+- Already used in luno for transactional emails
 - Could be used for CRM outreach emails drafted by the bot
 - React Email templates for consistent formatting
 

@@ -110,7 +110,7 @@ Der Bot schreibt im luno-Stil:
 - Content-Säulen: Origin Story, Marktplatz-Kaltstart, Faire Preisgestaltung, Build-in-Public/AI-Coding, Leipziger Yogaszene
 - Post-Framework: Situation → Erkenntnis → Frage
 
-Siehe auch: matspace `/write-luno` Skill für Details.
+Siehe auch: luno `/write-luno` Skill für Details.
 
 ## Referenzen
 
