@@ -10,6 +10,7 @@ const WHISPER_BIN = process.env.WHISPER_BIN || 'whisper-cli';
 const WHISPER_MODEL =
   process.env.WHISPER_MODEL ||
   path.join(process.cwd(), 'data', 'models', 'ggml-base.bin');
+const WHISPER_LANGUAGE = process.env.WHISPER_LANGUAGE || 'de';
 
 const FALLBACK_MESSAGE = '[Voice Message - transcription unavailable]';
 
@@ -33,7 +34,7 @@ async function transcribeWithWhisperCpp(
 
     const { stdout } = await execFileAsync(
       WHISPER_BIN,
-      ['-m', WHISPER_MODEL, '-f', tmpWav, '--no-timestamps', '-nt'],
+      ['-m', WHISPER_MODEL, '-f', tmpWav, '-l', WHISPER_LANGUAGE, '--no-timestamps', '-nt'],
       { timeout: 60_000 },
     );
 
