@@ -24,6 +24,7 @@ import {
 import {
   cleanupOrphans,
   cleanupStaleCredentials,
+  ensureContainerImage,
   ensureContainerNetwork,
   ensureContainerRuntimeRunning,
   PROXY_BIND_HOST,
@@ -478,6 +479,7 @@ function recoverPendingMessages(): void {
 
 function ensureContainerSystemRunning(): void {
   ensureContainerRuntimeRunning();
+  ensureContainerImage();
   ensureContainerNetwork();
   cleanupOrphans();
   cleanupStaleCredentials();

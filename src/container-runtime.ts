@@ -7,6 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { CONTAINER_IMAGE } from './config.js';
 import { logger } from './logger.js';
 
 /** The container runtime binary name. */
@@ -105,6 +106,54 @@ export function ensureContainerRuntimeRunning(): void {
     );
     throw new Error('Container runtime is required but failed to start');
   }
+}
+
+/** Ensure the agent container image exists. */
+export function ensureContainerImage(): void {
+  try {
+    const output = execSync(
+      `${CONTAINER_RUNTIME_BIN} image inspect ${CONTAINER_IMAGE} --format '{{.Id}}'`,
+      { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+    );
+    if (output.trim()) {
+      logger.debug({ image: CONTAINER_IMAGE }, 'Container image found');
+      return;
+    }
+  } catch {
+    // image not found
+  }
+
+  logger.error({ image: CONTAINER_IMAGE }, 'Container image not found');
+  console.error(
+    '\n╔════════════════════════════════════════════════════════════════╗',
+  );
+  console.error(
+    '║  FATAL: Agent container image not found                        ║',
+  );
+  console.error(
+    '║                                                                ║',
+  );
+  console.error(
+    `║  Image: ${CONTAINER_IMAGE.padEnd(53)}║`,
+  );
+  console.error(
+    '║                                                                ║',
+  );
+  console.error(
+    '║  Agents cannot run without this image. To fix:                 ║',
+  );
+  console.error(
+    '║  1. Run: bash container/build.sh                               ║',
+  );
+  console.error(
+    '║  2. Restart NanoClaw                                           ║',
+  );
+  console.error(
+    '╚════════════════════════════════════════════════════════════════╝\n',
+  );
+  throw new Error(
+    `Container image '${CONTAINER_IMAGE}' not found. Run: bash container/build.sh`,
+  );
 }
 
 /** Docker network name for NanoClaw containers (isolates from other services). */
