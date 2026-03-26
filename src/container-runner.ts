@@ -4,33 +4,31 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 import {
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
-  CREDENTIAL_PROXY_PORT,
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  ONECLI_URL,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
-  CONTAINER_HOST_GATEWAY,
-  CONTAINER_NETWORK,
   CONTAINER_RUNTIME_BIN,
   hostGatewayArgs,
   readonlyMountArgs,
   stopContainer,
 } from './container-runtime.js';
-import { detectAuthMode } from './credential-proxy.js';
+import { OneCLI } from '@onecli-sh/sdk';
 import { validateAdditionalMounts } from './mount-security.js';
-import { readEnvFile } from './env.js';
 import { RegisteredGroup } from './types.js';
+
+const onecli = new OneCLI({ url: ONECLI_URL });
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -45,6 +43,7 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
+  script?: string;
 }
 
 export interface ContainerOutput {
@@ -204,7 +203,16 @@ function buildVolumeMounts(
     'agent-runner-src',
   );
   if (fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+    const srcIndex = path.join(agentRunnerSrc, 'index.ts');
+    const cachedIndex = path.join(groupAgentRunnerDir, 'index.ts');
+    const needsCopy =
+      !fs.existsSync(groupAgentRunnerDir) ||
+      !fs.existsSync(cachedIndex) ||
+      (fs.existsSync(srcIndex) &&
+        fs.statSync(srcIndex).mtimeMs > fs.statSync(cachedIndex).mtimeMs);
+    if (needsCopy) {
+      fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+    }
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -225,94 +233,30 @@ function buildVolumeMounts(
   return mounts;
 }
 
-/**
- * Extra credentials to pass to main-group containers.
- * Written to a temp file and mounted read-only (not passed via -e flags,
- * which would be visible in docker inspect and /proc/environ).
- */
-const PASSTHROUGH_ENV_KEYS = [
-  'CF_ACCESS_CLIENT_ID',
-  'CF_ACCESS_CLIENT_SECRET',
-  'TEABLE_ACCESS_TOKEN',
-  'REPLICATE_API_TOKEN',
-  'GOOGLE_SERVICE_ACCOUNT_KEY',
-];
-
-/**
- * Write credentials to a temp file that gets mounted read-only into the container.
- * The container entrypoint sources this file. Returns the temp file path (caller must clean up).
- */
-function writeCredentialsFile(keys: string[]): string | null {
-  const env = readEnvFile(keys);
-  const lines: string[] = [];
-  for (const key of keys) {
-    if (env[key]) {
-      // Single-quote prevents shell interpretation ($, `, \, etc.)
-      const escaped = env[key].replace(/'/g, "'\\''");
-      lines.push('export ' + key + "='" + escaped + "'");
-    }
-  }
-  if (lines.length === 0) return null;
-
-  const tmpPath = path.join(
-    os.tmpdir(),
-    'nanoclaw-creds-' +
-      Date.now() +
-      '-' +
-      Math.random().toString(36).slice(2) +
-      '.sh',
-  );
-  fs.writeFileSync(tmpPath, lines.join('\n') + '\n', { mode: 0o600 });
-  return tmpPath;
-}
-
-interface ContainerArgsResult {
-  args: string[];
-  credentialsFile: string | null;
-}
-
-function buildContainerArgs(
+async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
-  isMain: boolean = false,
-): ContainerArgsResult {
-  let credentialsFile: string | null = null;
+  agentIdentifier?: string,
+): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Route API traffic through the credential proxy (containers never see real secrets)
-  args.push(
-    '-e',
-    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
-  );
-
-  // Mirror the host's auth method with a placeholder value.
-  // API key mode: SDK sends x-api-key, proxy replaces with real key.
-  // OAuth mode:   SDK exchanges placeholder token for temp API key,
-  //               proxy injects real OAuth token on that exchange request.
-  const authMode = detectAuthMode();
-  if (authMode === 'api-key') {
-    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  // OneCLI gateway handles credential injection — containers never see real secrets.
+  // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
+  const onecliApplied = await onecli.applyContainerConfig(args, {
+    addHostMapping: false, // Nanoclaw already handles host gateway
+    agent: agentIdentifier,
+  });
+  if (onecliApplied) {
+    logger.info({ containerName }, 'OneCLI gateway config applied');
   } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    logger.warn(
+      { containerName },
+      'OneCLI gateway not reachable — container will have no credentials',
+    );
   }
-
-  // Mount credentials as read-only file instead of passing via -e flags.
-  // This prevents exposure via `docker inspect` or `/proc/*/environ`.
-  if (isMain && PASSTHROUGH_ENV_KEYS.length > 0) {
-    credentialsFile = writeCredentialsFile(PASSTHROUGH_ENV_KEYS);
-    if (credentialsFile) {
-      args.push(
-        ...readonlyMountArgs(credentialsFile, '/workspace/.credentials.sh'),
-      );
-      args.push('-e', 'NANOCLAW_CREDENTIALS_FILE=/workspace/.credentials.sh');
-    }
-  }
-
-  // Use isolated network to prevent containers from reaching other services
-  args.push('--network', CONTAINER_NETWORK);
 
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
@@ -337,7 +281,7 @@ function buildContainerArgs(
 
   args.push(CONTAINER_IMAGE);
 
-  return { args, credentialsFile };
+  return args;
 }
 
 export async function runContainerAgent(
@@ -354,10 +298,14 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const { args: containerArgs, credentialsFile } = buildContainerArgs(
+  // Main group uses the default OneCLI agent; others use their own agent.
+  const agentIdentifier = input.isMain
+    ? undefined
+    : group.folder.toLowerCase().replace(/_/g, '-');
+  const containerArgs = await buildContainerArgs(
     mounts,
     containerName,
-    input.isMain,
+    agentIdentifier,
   );
 
   logger.debug(
@@ -514,14 +462,6 @@ export async function runContainerAgent(
 
     container.on('close', (code) => {
       clearTimeout(timeout);
-      // Clean up temp credentials file
-      if (credentialsFile) {
-        try {
-          fs.unlinkSync(credentialsFile);
-        } catch {
-          /* already cleaned */
-        }
-      }
       const duration = Date.now() - startTime;
 
       if (timedOut) {
@@ -727,14 +667,6 @@ export async function runContainerAgent(
 
     container.on('error', (err) => {
       clearTimeout(timeout);
-      // Clean up temp credentials file
-      if (credentialsFile) {
-        try {
-          fs.unlinkSync(credentialsFile);
-        } catch {
-          /* best effort */
-        }
-      }
       logger.error(
         { group: group.name, containerName, error: err },
         'Container spawn error',
@@ -755,6 +687,7 @@ export function writeTasksSnapshot(
     id: string;
     groupFolder: string;
     prompt: string;
+    script?: string | null;
     schedule_type: string;
     schedule_value: string;
     status: string;
@@ -790,7 +723,7 @@ export function writeGroupsSnapshot(
   groupFolder: string,
   isMain: boolean,
   groups: AvailableGroup[],
-  registeredJids: Set<string>,
+  _registeredJids: Set<string>,
 ): void {
   const groupIpcDir = resolveGroupIpcPath(groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
