@@ -136,7 +136,10 @@ export function ensureContainerImage(): void {
         timeout: 600_000,
         cwd: process.cwd(),
       });
-      logger.info({ image: CONTAINER_IMAGE }, 'Container image built successfully');
+      logger.info(
+        { image: CONTAINER_IMAGE },
+        'Container image built successfully',
+      );
       return;
     } catch (buildErr) {
       logger.error({ err: buildErr }, 'Auto-build failed');

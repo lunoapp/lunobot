@@ -34,7 +34,16 @@ async function transcribeWithWhisperCpp(
 
     const { stdout } = await execFileAsync(
       WHISPER_BIN,
-      ['-m', WHISPER_MODEL, '-f', tmpWav, '-l', WHISPER_LANGUAGE, '--no-timestamps', '-nt'],
+      [
+        '-m',
+        WHISPER_MODEL,
+        '-f',
+        tmpWav,
+        '-l',
+        WHISPER_LANGUAGE,
+        '--no-timestamps',
+        '-nt',
+      ],
       { timeout: 60_000 },
     );
 
