@@ -108,7 +108,7 @@ export function ensureContainerRuntimeRunning(): void {
   }
 }
 
-/** Ensure the agent container image exists. */
+/** Ensure the agent container image exists, auto-building if missing. */
 export function ensureContainerImage(): void {
   try {
     const output = execSync(
@@ -123,36 +123,28 @@ export function ensureContainerImage(): void {
     // image not found
   }
 
-  logger.error({ image: CONTAINER_IMAGE }, 'Container image not found');
-  console.error(
-    '\n╔════════════════════════════════════════════════════════════════╗',
-  );
-  console.error(
-    '║  FATAL: Agent container image not found                        ║',
-  );
-  console.error(
-    '║                                                                ║',
-  );
-  console.error(
-    `║  Image: ${CONTAINER_IMAGE.padEnd(53)}║`,
-  );
-  console.error(
-    '║                                                                ║',
-  );
-  console.error(
-    '║  Agents cannot run without this image. To fix:                 ║',
-  );
-  console.error(
-    '║  1. Run: bash container/build.sh                               ║',
-  );
-  console.error(
-    '║  2. Restart NanoClaw                                           ║',
-  );
-  console.error(
-    '╚════════════════════════════════════════════════════════════════╝\n',
-  );
+  // Auto-build the container image
+  const buildScript = path.join(process.cwd(), 'container', 'build.sh');
+  if (fs.existsSync(buildScript)) {
+    logger.warn(
+      { image: CONTAINER_IMAGE },
+      'Container image not found — auto-building',
+    );
+    try {
+      execSync(`bash ${buildScript}`, {
+        stdio: 'pipe',
+        timeout: 600_000,
+        cwd: process.cwd(),
+      });
+      logger.info({ image: CONTAINER_IMAGE }, 'Container image built successfully');
+      return;
+    } catch (buildErr) {
+      logger.error({ err: buildErr }, 'Auto-build failed');
+    }
+  }
+
   throw new Error(
-    `Container image '${CONTAINER_IMAGE}' not found. Run: bash container/build.sh`,
+    `Container image '${CONTAINER_IMAGE}' not found and auto-build failed. Run: bash container/build.sh`,
   );
 }
 
