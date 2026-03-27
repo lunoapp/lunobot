@@ -258,6 +258,19 @@ async function buildContainerArgs(
     );
   }
 
+  // Mount Google Service Account key if available (needed by Google Docs MCP).
+  // OneCLI handles HTTP header injection, but SA keys are file-based credentials.
+  const saKeyPath = path.join(
+    process.env.HOME || '/home/nanoclaw',
+    'credentials',
+    'google-service-account.json',
+  );
+  if (fs.existsSync(saKeyPath)) {
+    const containerSaPath = '/workspace/.google-sa.json';
+    args.push(...readonlyMountArgs(saKeyPath, containerSaPath));
+    args.push('-e', `SERVICE_ACCOUNT_PATH=${containerSaPath}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
