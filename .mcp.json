@@ -1,3 +1,12 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "coolify": {
+      "command": "npx",
+      "args": ["-y", "@masonator/coolify-mcp"],
+      "env": {
+        "COOLIFY_ACCESS_TOKEN": "${LUNO_COOLIFY_ACCESS_TOKEN}",
+        "COOLIFY_BASE_URL": "${LUNO_COOLIFY_BASE_URL}"
+      }
+    }
+  }
 }
