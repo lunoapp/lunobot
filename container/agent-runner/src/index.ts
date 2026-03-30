@@ -467,8 +467,8 @@ async function runQuery(
         },
         ...(process.env.SERVICE_ACCOUNT_PATH ? {
           'google-docs': {
-            command: 'npx',
-            args: ['-y', '@a-bonus/google-docs-mcp'],
+            command: 'google-docs-mcp',
+            args: [],
             env: {
               SERVICE_ACCOUNT_PATH: process.env.SERVICE_ACCOUNT_PATH || '',
             },
