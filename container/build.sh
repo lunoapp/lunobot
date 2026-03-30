@@ -20,6 +20,7 @@ echo "Building NanoClaw agent container image..."
 echo "Image: ${IMAGE_NAME}:${TAG} (git: ${GIT_SHA})"
 
 ${CONTAINER_RUNTIME} build \
+  --label "coolify.managed=true" \
   --label "org.opencontainers.image.revision=${GIT_SHA}" \
   --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -t "${IMAGE_NAME}:${TAG}" \

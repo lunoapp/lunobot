@@ -3,6 +3,10 @@
 
 FROM node:22-slim
 
+# Prevent Coolify's DockerCleanupJob from deleting this image.
+# Coolify prunes all images without this label nightly at 00:00 UTC.
+LABEL coolify.managed=true
+
 # Install system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
     chromium \
