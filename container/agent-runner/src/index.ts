@@ -449,7 +449,8 @@ async function runQuery(
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
-        'mcp__google-docs__*'
+        'mcp__google-docs__*',
+        'mcp__github__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -471,6 +472,16 @@ async function runQuery(
             args: [],
             env: {
               SERVICE_ACCOUNT_PATH: process.env.SERVICE_ACCOUNT_PATH || '',
+            },
+          },
+        } : {}),
+        ...(process.env.GITHUB_PERSONAL_ACCESS_TOKEN ? {
+          'github': {
+            command: 'github-mcp-server',
+            args: ['stdio'],
+            env: {
+              GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN,
+              GITHUB_TOOLSETS: 'repos,issues,context',
             },
           },
         } : {}),

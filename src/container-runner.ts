@@ -25,8 +25,11 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { OneCLI } from '@onecli-sh/sdk';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
+
+const githubEnv = readEnvFile(['GITHUB_APP_ID', 'GITHUB_APP_INSTALLATION_ID']);
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -269,6 +272,20 @@ async function buildContainerArgs(
     const containerSaPath = '/workspace/.google-sa.json';
     args.push(...readonlyMountArgs(saKeyPath, containerSaPath));
     args.push('-e', `SERVICE_ACCOUNT_PATH=${containerSaPath}`);
+  }
+
+  // Mount GitHub App private key and pass App credentials if available.
+  // The container entrypoint generates an installation token from these.
+  const ghKeyPath = path.join(
+    process.env.HOME || '/home/nanoclaw',
+    'credentials',
+    'github-app.pem',
+  );
+  if (fs.existsSync(ghKeyPath)) {
+    const ghKeyB64 = fs.readFileSync(ghKeyPath).toString('base64');
+    args.push('-e', `GITHUB_APP_PRIVATE_KEY=${ghKeyB64}`);
+    args.push('-e', `GITHUB_APP_ID=${githubEnv.GITHUB_APP_ID || ''}`);
+    args.push('-e', `GITHUB_APP_INSTALLATION_ID=${githubEnv.GITHUB_APP_INSTALLATION_ID || ''}`);
   }
 
   // Runtime-specific args for host gateway resolution

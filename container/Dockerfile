@@ -39,6 +39,10 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # Pre-installing avoids npx download on every container start (network-dependent, slow)
 RUN npm install -g agent-browser @anthropic-ai/claude-code @a-bonus/google-docs-mcp
 
+# Install GitHub MCP server (Go binary, provides GitHub API tools for the agent)
+RUN curl -fsSL https://github.com/github/github-mcp-server/releases/latest/download/github-mcp-server_Linux_x86_64.tar.gz \
+    | tar -xz -C /usr/local/bin github-mcp-server
+
 # Create app directory
 WORKDIR /app
 
@@ -61,7 +65,10 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 # Container input (prompt, group info) is passed via stdin JSON.
 # Credentials are injected by the host's credential proxy — never passed here.
 # Follow-up messages arrive via IPC files in /workspace/ipc/input/
-RUN printf '#!/bin/bash\nset -e\n# Source credentials file if mounted (read-only, not in env vars)\nif [ -f "${NANOCLAW_CREDENTIALS_FILE:-}" ]; then\n  source "$NANOCLAW_CREDENTIALS_FILE"\nfi\n# Write Google service account key file from base64 env var if available\nif [ -n "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then\n  echo "$GOOGLE_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/google-sa-key.json\n  export SERVICE_ACCOUNT_PATH=/tmp/google-sa-key.json\nfi\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Create GitHub App token helper (generates installation token from private key)
+COPY github-app-token.mjs /app/github-app-token.mjs
+
+RUN printf '#!/bin/bash\nset -e\n# Source credentials file if mounted (read-only, not in env vars)\nif [ -f "${NANOCLAW_CREDENTIALS_FILE:-}" ]; then\n  source "$NANOCLAW_CREDENTIALS_FILE"\nfi\n# Write Google service account key file from base64 env var if available\nif [ -n "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then\n  echo "$GOOGLE_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/google-sa-key.json\n  export SERVICE_ACCOUNT_PATH=/tmp/google-sa-key.json\nfi\n# Generate GitHub App installation token if credentials are available\nif [ -n "${GITHUB_APP_PRIVATE_KEY:-}" ] && [ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_INSTALLATION_ID:-}" ]; then\n  GITHUB_TOKEN=$(node /app/github-app-token.mjs 2>/dev/null)\n  if [ -n "$GITHUB_TOKEN" ]; then\n    export GITHUB_PERSONAL_ACCESS_TOKEN="$GITHUB_TOKEN"\n  fi\nfi\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
