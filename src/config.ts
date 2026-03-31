@@ -91,3 +91,11 @@ function resolveConfigTimezone(): string {
   return 'UTC';
 }
 export const TIMEZONE = resolveConfigTimezone();
+
+// Set process.env.TZ so Node.js Date operations use the correct timezone.
+// Without this, new Date("2026-03-31T08:00:00") is parsed as UTC on a UTC
+// server, even when TIMEZONE is Europe/Berlin — breaking scheduled tasks.
+// TZ is not a secret, so it's safe to expose to child processes.
+if (!process.env.TZ && TIMEZONE !== 'UTC') {
+  process.env.TZ = TIMEZONE;
+}
