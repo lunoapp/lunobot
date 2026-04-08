@@ -19,7 +19,8 @@ export const CONTAINER_RUNTIME_BIN =
  * Apple Container VMs use a bridge network (192.168.64.x); the host is at the gateway.
  * Detected from the bridge0 interface, falling back to 192.168.64.1.
  */
-export const CONTAINER_HOST_GATEWAY = detectHostGateway();
+export const CONTAINER_HOST_GATEWAY =
+  CONTAINER_RUNTIME_BIN === 'docker' ? 'host.docker.internal' : detectHostGateway();
 
 function detectHostGateway(): string {
   // Apple Container on macOS: containers reach the host via the bridge network gateway
