@@ -25,6 +25,18 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 API keys, secret keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway — which handles secret injection into containers at request time, so no keys or tokens are ever passed to containers directly. Run `onecli --help`.
 
+**WICHTIG:** Der `skill/native-credential-proxy` Upstream-Skill ist ein Ersatz für OneCLI, kein Complement. Diesen Skill NICHT mergen – er entfernt den OneCLI-Credential-Flow aus `container-runner.ts` und ersetzt ihn durch einen nativen Proxy.
+
+## Container Runtime
+
+- **Server (Hetzner):** Docker — `CONTAINER_RUNTIME=docker` in systemd service + `.env`
+- **Lokal (macOS):** Apple Container — Default
+
+Der `skill/apple-container` Upstream-Skill ändert Defaults auf Apple Container. Nach jedem Merge prüfen:
+- `src/container-runtime.ts`: `CONTAINER_RUNTIME_BIN` muss `process.env.CONTAINER_RUNTIME || 'container'` sein (nicht hardcoded)
+- `src/container-runtime.ts`: `CONTAINER_HOST_GATEWAY` muss für Docker `host.docker.internal` sein
+- `src/container-runner.ts`: `.env`-Shadowing muss für Docker `/dev/null`-Mount nutzen (nicht Entrypoint `mount --bind`)
+
 ## Skills
 
 Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full taxonomy and guidelines.
