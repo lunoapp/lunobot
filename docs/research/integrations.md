@@ -80,7 +80,8 @@ Research date: 2026-03-20
 
 | Table | ID | Base | Purpose |
 |-------|-----|------|---------|
-| Content (Marketing-Logbuch) | `tblh77SllVYtjIYSDsy` | `bseCNT001` | All social media posts |
+| Themen | `tblh77SllVYtjIYSDsy` | `bseCNT001` | Content-Themen (Nr, Säule, Thema, Status) |
+| Posts | `tblgkzS2CqdPZSX7Ary` | `bseCNT001` | Social-Media-Posts (Bezeichnung, Format, Plattform, Caption, Status, Thema-Link) |
 | Studios (CRM) | `tblxjB7THMQtehfBbsc` | `bseCRM001` | Outreach pipeline |
 
 ### Bot use cases

@@ -15,7 +15,7 @@ NanoClaw (Fork, Hetzner VPS via Coolify)
     ├── Scheduler (Cron/Interval Tasks)
     └── MCP Tools:
         ├── Teable CRM (Studios-Pipeline)
-        ├── Teable Content (Marketing-Logbuch)
+        ├── Teable Content (Themen + Posts)
         ├── Instagram Graph API
         ├── LinkedIn Share API
         └── (Future: Google Calendar, Replicate/FLUX)
@@ -30,7 +30,7 @@ NanoClaw (Fork, Hetzner VPS via Coolify)
 | Content draften | "Schreib einen Instagram-Post zum Thema faire Preisgestaltung" |
 | Post reviewen | Bot zeigt Draft → Inline-Keyboard: Posten / Bearbeiten / Verwerfen |
 | Post veröffentlichen | Bot postet auf Instagram/LinkedIn nach Approval |
-| Post loggen | Bot trägt veröffentlichten Post ins Marketing-Logbuch (Teable) ein |
+| Post loggen | Bot legt Post in Teable an (Thema → Posts-Tabelle) |
 | Content-Kalender | "Was steht diese Woche an?" → Query Content-Tabelle |
 | Content-Ideen | "Gib mir 3 Post-Ideen zur Content-Säule Build-in-Public" |
 

@@ -103,7 +103,11 @@ Schrift: Plus Jakarta Sans.
 
 ### Teable (hub.hiluno.com)
 
-- **Content-Tabelle (Marketing-Logbuch):** Alle Social-Media-Posts — Table ID `tblh77SllVYtjIYSDsy` in Base `bseCNT001`
+- **Content Base** (`bseCNT001`) mit zwei Tabellen:
+  - **Themen** — Table ID `tblh77SllVYtjIYSDsy` — Felder: Nr, Säule (singleSelect), Thema, Status (Idee/Entwurf/Bereit/Live)
+  - **Posts** — Table ID `tblgkzS2CqdPZSX7Ary` — Felder: Bezeichnung (PK, Format: „{Thema} – {Format} {Plattform}"), Format (Carousel/Reel/Story/Single), Plattform (Instagram/LinkedIn), Caption (longText), Status (Offen/Bereit/Live), Geplant für, Gepostet am, Google Drive (URL), Link (URL), Likes, Kommentare, Template, Thema (Link → Themen-Tabelle)
+- **Caption lebt am Post, nicht am Thema.** Stories haben keine Caption. Das Feld „Text / Entwurf" auf Themen existiert nicht mehr.
+- **Link-Felder** sind Objects: `{"Thema": {"id": "recXXX", "title": "9"}}` (nicht Arrays)
 - **Studios-Tabelle (CRM):** Outreach-Pipeline — Table ID `tblxjB7THMQtehfBbsc` in Base `bseCRM001`
 - **API Base URL:** `https://hub.hiluno.com/api`
 
