@@ -35,7 +35,6 @@ const githubEnv = readEnvFile(['GITHUB_APP_ID', 'GITHUB_APP_INSTALLATION_ID']);
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
-
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
