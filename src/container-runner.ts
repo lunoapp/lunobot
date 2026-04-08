@@ -35,7 +35,6 @@ const githubEnv = readEnvFile(['GITHUB_APP_ID', 'GITHUB_APP_INSTALLATION_ID']);
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
-
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
@@ -301,7 +300,10 @@ function buildContainerArgs(
     const ghKeyB64 = fs.readFileSync(ghKeyPath).toString('base64');
     args.push('-e', `GITHUB_APP_PRIVATE_KEY=${ghKeyB64}`);
     args.push('-e', `GITHUB_APP_ID=${githubEnv.GITHUB_APP_ID || ''}`);
-    args.push('-e', `GITHUB_APP_INSTALLATION_ID=${githubEnv.GITHUB_APP_INSTALLATION_ID || ''}`);
+    args.push(
+      '-e',
+      `GITHUB_APP_INSTALLATION_ID=${githubEnv.GITHUB_APP_INSTALLATION_ID || ''}`,
+    );
   }
 
   // Runtime-specific args for host gateway resolution
