@@ -11,7 +11,7 @@ import { CONTAINER_IMAGE } from './config.js';
 import { logger } from './logger.js';
 
 /** The container runtime binary name. */
-export const CONTAINER_RUNTIME_BIN = 'container';
+export const CONTAINER_RUNTIME_BIN = process.env.CONTAINER_RUNTIME || 'container';
 
 /**
  * IP address containers use to reach the host machine.
