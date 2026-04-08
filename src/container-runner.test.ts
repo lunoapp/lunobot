@@ -67,6 +67,14 @@ vi.mock('./credential-proxy.js', () => ({
   detectAuthMode: vi.fn(() => 'api-key'),
 }));
 
+// Mock OneCLI SDK
+vi.mock('@onecli-sh/sdk', () => {
+  class MockOneCLI {
+    applyContainerConfig = vi.fn(async () => false);
+  }
+  return { OneCLI: MockOneCLI };
+});
+
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
   const proc = new EventEmitter() as EventEmitter & {
