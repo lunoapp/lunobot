@@ -268,6 +268,7 @@ async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   isMain: boolean,
+  agentIdentifier?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -279,27 +280,19 @@ async function buildContainerArgs(
     args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
   }
 
-  // Credential injection: try OneCLI first, fall back to native credential proxy.
-  // OneCLI handles all HTTPS credential injection transparently via its gateway.
+  // OneCLI gateway handles credential injection — containers never see real secrets.
+  // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
   const onecliApplied = await onecli.applyContainerConfig(args, {
-    addHostMapping: false, // NanoClaw already handles host gateway via --add-host
-    agent: `nanoclaw/${containerName}`,
+    addHostMapping: false, // Nanoclaw already handles host gateway
+    agent: agentIdentifier,
   });
   if (onecliApplied) {
     logger.info({ containerName }, 'OneCLI gateway config applied');
   } else {
-    // Fallback: native credential proxy (containers never see real secrets)
-    logger.info({ containerName }, 'OneCLI not available, using native credential proxy');
-    args.push(
-      '-e',
-      `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+    logger.warn(
+      { containerName },
+      'OneCLI gateway not reachable — container will have no credentials',
     );
-    const authMode = detectAuthMode();
-    if (authMode === 'api-key') {
-      args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
-    } else {
-      args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
-    }
   }
 
   // Mount Google Service Account key if available (needed by Google Docs MCP).
@@ -379,7 +372,16 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = await buildContainerArgs(mounts, containerName, input.isMain);
+  // Main group uses the default OneCLI agent; others use their own agent.
+  const agentIdentifier = input.isMain
+    ? undefined
+    : group.folder.toLowerCase().replace(/_/g, '-');
+  const containerArgs = await buildContainerArgs(
+    mounts,
+    containerName,
+    input.isMain,
+    agentIdentifier,
+  );
 
   logger.debug(
     {
