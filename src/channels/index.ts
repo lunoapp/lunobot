@@ -10,3 +10,6 @@
 import './telegram.js'; // telegram
 
 // whatsapp
+
+// emacs
+import './emacs.js';
