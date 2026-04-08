@@ -11,7 +11,8 @@ import { CONTAINER_IMAGE } from './config.js';
 import { logger } from './logger.js';
 
 /** The container runtime binary name. */
-export const CONTAINER_RUNTIME_BIN = process.env.CONTAINER_RUNTIME || 'container';
+export const CONTAINER_RUNTIME_BIN =
+  process.env.CONTAINER_RUNTIME || 'container';
 
 /**
  * IP address containers use to reach the host machine.
@@ -88,10 +89,21 @@ export function stopContainer(name: string): void {
 
 /** Ensure the container runtime is running, starting it if needed. */
 export function ensureContainerRuntimeRunning(): void {
+  // Docker runs as a system daemon — just verify it's reachable.
+  // Apple Container uses `container system status/start`.
+  const isDocker = CONTAINER_RUNTIME_BIN === 'docker';
+  const statusCmd = isDocker
+    ? `${CONTAINER_RUNTIME_BIN} info`
+    : `${CONTAINER_RUNTIME_BIN} system status`;
   try {
-    execSync(`${CONTAINER_RUNTIME_BIN} system status`, { stdio: 'pipe' });
+    execSync(statusCmd, { stdio: 'pipe' });
     logger.debug('Container runtime already running');
   } catch {
+    if (isDocker) {
+      // Docker daemon is not running — cannot auto-start it from userspace
+      logger.error('Docker daemon is not running');
+      throw new Error('Container runtime is required but failed to start');
+    }
     logger.info('Starting container runtime...');
     try {
       execSync(`${CONTAINER_RUNTIME_BIN} system start`, {
