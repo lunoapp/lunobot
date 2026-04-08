@@ -86,8 +86,19 @@ function buildVolumeMounts(
       readonly: true,
     });
 
-    // .env shadowing is handled inside the container entrypoint via mount --bind
-    // (Apple Container only supports directory mounts, not file mounts like /dev/null)
+    // Shadow .env so the agent cannot read host secrets.
+    // Docker: mount /dev/null over the file from the host side.
+    // Apple Container: handled inside the entrypoint via mount --bind (no file mounts).
+    if (CONTAINER_RUNTIME_BIN === 'docker') {
+      const envFile = path.join(projectRoot, '.env');
+      if (fs.existsSync(envFile)) {
+        mounts.push({
+          hostPath: '/dev/null',
+          containerPath: '/workspace/project/.env',
+          readonly: true,
+        });
+      }
+    }
 
     // Main gets writable access to the store (SQLite DB) so it can
     // query and write to the database directly.
