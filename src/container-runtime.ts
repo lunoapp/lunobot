@@ -34,23 +34,6 @@ function detectHostGateway(): string {
 
 /**
  * Address the credential proxy binds to.
- * Must be set via CREDENTIAL_PROXY_HOST in .env — there is no safe default
- * for Apple Container because bridge100 only exists while containers run,
- * but the proxy must start before any container.
- * The /convert-to-apple-container skill sets this during setup.
- */
-export const PROXY_BIND_HOST = process.env.CREDENTIAL_PROXY_HOST;
-if (!PROXY_BIND_HOST) {
-  throw new Error(
-    'CREDENTIAL_PROXY_HOST is not set in .env. Run /convert-to-apple-container to configure.',
-  );
-}
-
-/** Hostname containers use to reach the host machine. */
-export const CONTAINER_HOST_GATEWAY = 'host.docker.internal';
-
-/**
- * Address the credential proxy binds to.
  * Docker Desktop (macOS): 127.0.0.1 — the VM routes host.docker.internal to loopback.
  * Docker (Linux): bind to the docker0 bridge IP so only containers can reach it,
  *   falling back to 0.0.0.0 if the interface isn't found.
