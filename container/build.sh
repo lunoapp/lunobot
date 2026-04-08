@@ -11,7 +11,7 @@ cd "$SCRIPT_DIR"
 
 IMAGE_NAME="nanoclaw-agent"
 TAG="${1:-latest}"
-CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-container}"
 
 # Git SHA tag for traceability (which code is running?)
 GIT_SHA=$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo "unknown")
