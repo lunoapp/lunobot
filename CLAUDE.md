@@ -36,6 +36,7 @@ Der `skill/apple-container` Upstream-Skill ändert Defaults auf Apple Container.
 - `src/container-runtime.ts`: `CONTAINER_RUNTIME_BIN` muss `process.env.CONTAINER_RUNTIME || 'container'` sein (nicht hardcoded)
 - `src/container-runtime.ts`: `CONTAINER_HOST_GATEWAY` muss für Docker `host.docker.internal` sein
 - `src/container-runner.ts`: `.env`-Shadowing muss für Docker `/dev/null`-Mount nutzen (nicht Entrypoint `mount --bind`)
+- `container/Dockerfile`: `USER node` muss vor `WORKDIR /workspace/group` stehen (Claude Code verweigert bypass-permissions als root)
 
 ## Skills
 
