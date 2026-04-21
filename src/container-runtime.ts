@@ -20,7 +20,9 @@ export const CONTAINER_RUNTIME_BIN =
  * Detected from the bridge0 interface, falling back to 192.168.64.1.
  */
 export const CONTAINER_HOST_GATEWAY =
-  CONTAINER_RUNTIME_BIN === 'docker' ? 'host.docker.internal' : detectHostGateway();
+  CONTAINER_RUNTIME_BIN === 'docker'
+    ? 'host.docker.internal'
+    : detectHostGateway();
 
 function detectHostGateway(): string {
   // Apple Container on macOS: containers reach the host via the bridge network gateway
@@ -239,24 +241,23 @@ export function cleanupStaleCredentials(): void {
 /** Kill orphaned NanoClaw containers from previous runs. */
 export function cleanupOrphans(): void {
   try {
-    const output = execSync(`${CONTAINER_RUNTIME_BIN} ls --format json`, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-    });
-    const containers: { status: string; configuration: { id: string } }[] =
-      JSON.parse(output || '[]');
-    const orphans = containers
-      .filter(
-        (c) =>
-          c.status === 'running' && c.configuration.id.startsWith('nanoclaw-'),
-      )
-      .map((c) => c.configuration.id);
+    const output = execSync(
+      `${CONTAINER_RUNTIME_BIN} ps --filter name=nanoclaw- --format '{{.Names}}'`,
+      { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+    );
+    const orphans = output.trim().split('\n').filter(Boolean);
     for (const name of orphans) {
       try {
         stopContainer(name);
       } catch {
         /* already stopped */
       }
+    }
+    if (orphans.length > 0) {
+      logger.info(
+        { count: orphans.length, names: orphans },
+        'Stopped orphaned containers',
+      );
     }
     if (orphans.length > 0) {
       logger.info(
