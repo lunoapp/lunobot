@@ -57,6 +57,7 @@ vi.mock('./mount-security.js', () => ({
 vi.mock('./container-runtime.js', () => ({
   CONTAINER_RUNTIME_BIN: 'container',
   CONTAINER_HOST_GATEWAY: 'host.docker.internal',
+  ensureContainerImage: vi.fn(),
   hostGatewayArgs: () => [],
   readonlyMountArgs: (h: string, c: string) => ['-v', `${h}:${c}:ro`],
   stopContainer: vi.fn(),

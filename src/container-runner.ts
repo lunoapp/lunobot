@@ -23,6 +23,7 @@ import { logger } from './logger.js';
 import {
   CONTAINER_HOST_GATEWAY,
   CONTAINER_RUNTIME_BIN,
+  ensureContainerImage,
   hostGatewayArgs,
   readonlyMountArgs,
   stopContainer,
@@ -365,6 +366,9 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
+
+  // Ensure the container image exists (auto-rebuild if Coolify or Docker pruned it)
+  ensureContainerImage();
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
