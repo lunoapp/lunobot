@@ -4,13 +4,21 @@ import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
 
+import { readEnvFile } from './env.js';
+
 const execFileAsync = promisify(execFile);
 
-const WHISPER_BIN = process.env.WHISPER_BIN || 'whisper-cli';
+// v2 does not load .env into process.env (see src/env.ts). Read once at module
+// load via the v2 helper. process.env is still consulted as an override so the
+// systemd unit / launchd plist can pin paths if needed.
+const env = readEnvFile(['WHISPER_BIN', 'WHISPER_MODEL', 'WHISPER_LANGUAGE']);
+const WHISPER_BIN = process.env.WHISPER_BIN || env.WHISPER_BIN || 'whisper-cli';
 const WHISPER_MODEL =
   process.env.WHISPER_MODEL ||
+  env.WHISPER_MODEL ||
   path.join(process.cwd(), 'data', 'models', 'ggml-base.bin');
-const WHISPER_LANGUAGE = process.env.WHISPER_LANGUAGE || 'de';
+const WHISPER_LANGUAGE =
+  process.env.WHISPER_LANGUAGE || env.WHISPER_LANGUAGE || 'de';
 
 const FALLBACK_MESSAGE = '[Voice Message - transcription unavailable]';
 
