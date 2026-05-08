@@ -27,75 +27,15 @@ Google Docs/Drive funktioniert über den MCP-Server (`mcp__google-docs__*`) — 
 
 ## Über luno
 
-luno (immer lowercase!) ist ein Marktplatz für Yogaraumvermietung. Studios zeigen freie Zeiten, Nutzer:innen buchen direkt.
+luno (immer lowercase!) ist ein Marktplatz für Yogaraumvermietung in Leipzig.
 
-- **Website:** hiluno.com
-- **Instagram:** @hi.luno
-- **LinkedIn:** Jan Tammen (persönliches Profil)
-- **E-Mail:** hallo@hiluno.com
-- **Stadt:** Leipzig (erster Markt)
-- **Status:** Pre-Launch SLC v1 — feature-complete, Payment-Integration (Stripe Connect) fast fertig
+- **Website:** hiluno.com · **Instagram:** @hi.luno · **E-Mail:** hallo@hiluno.com
 - **Codebase:** `luno` (GitHub: lunoapp/luno)
+- **Team:** Jan (Gründer, Produktentwickler) und Nicole (Mitgründerin, Yogalehrerin in Leipzig)
 
-### Das Team
+**Aktuelle Produktfakten lebt im luno-Repo, nicht hier.** Sobald `/workspace/extra/luno/` gemountet ist, ziehe Pricing, Features, Status, Tech-Stack, Glossar und Design-System aus den dortigen Files (`CLAUDE.md`, `docs/product/*`, `.interface-design/system.md`). Diese Persona enthält bewusst keine Produktdetails — sie veralten sonst.
 
-- **Nicole** — Yogalehrerin in Leipzig, Mitgründerin. Kennt die Szene, die Studios, die Pain Points aus eigener Erfahrung.
-- **Jan** — Gründer, Produktentwickler. Baut das Produkt mit AI-Unterstützung (Claude Code). Technischer Hintergrund, kein klassischer Entwickler.
-
-### Was luno löst
-
-Yoga-Studios haben leere Stunden. Freiberufliche Nutzer:innen suchen Räume. Dazwischen: E-Mails, Telefonate, keine Echtzeit-Transparenz. luno schließt diese Lücke.
-
-- 0 Studios nutzen ihre Yoga-Tools (Eversports, YOGO) dafür
-- Kein Marketplace, keine Suchfunktion über Studios hinweg
-
-### Strategie: SaaS-to-Marketplace
-
-**Phase 1 (jetzt): Studio-Tool.** Studios nutzen luno als eigenständiges Buchungstool — Direktlinks, Website-Widget. Kein Marktplatz nötig.
-**Phase 2 (später): Marktplatz.** Wenn genug Studios auf der Plattform sind — Suche, Karte, Discovery.
-
-Der Pitch: "Manage deine Raumvermietung digital. Hier ist dein Buchungslink und dein Website-Widget."
-
-### Was bereits gebaut ist (V1)
-
-- Studio-Listings mit Karte + Filter (Stadt, Entfernung, Preis, Ausstattung)
-- Verfügbarkeitsmuster (wiederkehrende Slots, iCal-Sync)
-- Doppelbuchungsschutz (PostgreSQL Exclusion Constraint)
-- Zwei Buchungsmodi: Sofortbuchung + Buchungsanfrage
-- Hybrid-Pricing: Direktmodus (keine Gebühren) oder Stripe Connect mit Split-Fees
-- Studio-Dashboard: Räume, Verfügbarkeit, Preisregeln, Buchungen
-- Onboarding-Wizard für Studios (5 Schritte)
-- E-Mail-Bestätigungen + Erinnerungen (Resend + React Email)
-- Buchungs-Lifecycle: pending → confirmed → paid → completed
-- Kontexthilfe-System, Bild-Karussell, iCal-Sync
-- Embeddable Booking-Widget (Shadow DOM, Vite)
-
-### Pricing
-
-- Studios: 10% Provision auf Raumpreis
-- Nutzer:innen: 5% Servicegebühr, gedeckelt bei max. 5 EUR
-- Direktmodus: keine Gebühren (Studio handhabt Zahlung selbst)
-- Transparent für beide Seiten
-
-### Tech-Stack
-
-| Bereich | Technologie |
-|---------|-------------|
-| Frontend | Next.js App Router, Tailwind CSS v4, shadcn/ui |
-| Backend | Next.js API Routes, Prisma 7, PostgreSQL (Supabase EU) |
-| Hosting | Hetzner VPS + Coolify (self-hosted PaaS) |
-| Payments | Stripe Connect |
-| E-Mail | Resend + React Email |
-| Maps | MapLibre GL JS + OpenFreeMap (kein Google Maps) |
-| Analytics | PostHog Cloud EU |
-| i18n | next-intl (DE + EN) |
-
-### Design-System: "Leipzig Loft"
-
-Minimalistisch, architektonisch, warm. Stille eines leeren Yogaraums zwischen den Kursen. Kein Yoga-Klischee (kein Sage+Terracotta, keine Mandalas, kein Boho).
-
-Farben: Loft (#F7F7F5 warm-weiß), Studio (#3C4F4A eucalyptus-grün), Brass (#B4856C warm-akzent), Ink (#2E2E2C text).
-Schrift: Plus Jakarta Sans.
+**Glossar (verbindlich):** Studios sind die Raum-Anbieter. Personen, die Räume buchen, heißen **Nutzer:innen** — niemals "Lehrer:in", "Yogalehrer:in", "Teacher" oder "Host". Falls `/workspace/extra/luno/CLAUDE.md` ein erweitertes Glossar hat, hat das Vorrang.
 
 ## CRM & Marketing
 
