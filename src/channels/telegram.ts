@@ -15,6 +15,8 @@ import { sanitizeTelegramLegacyMarkdown } from './telegram-markdown-sanitize.js'
 import { registerChannelAdapter } from './channel-registry.js';
 import type { ChannelAdapter, ChannelSetup, InboundMessage } from './adapter.js';
 import { tryConsume } from './telegram-pairing.js';
+// skill/voice-transcription
+import { transcribeAudioBuffer } from '../transcription.js';
 
 /**
  * Retry a one-shot operation that can fail on transient network errors at
@@ -108,6 +110,50 @@ async function sendPairingConfirmation(token: string, platformId: string): Promi
   } catch (err) {
     log.warn('Telegram pairing confirmation failed', { err });
   }
+}
+
+// skill/voice-transcription — wrap onInbound to transcribe Telegram voice
+// messages via local whisper.cpp before they reach the host router. Voice
+// notes arrive as audio/* attachments with base64 `data` (chat-sdk-bridge
+// already downloaded them). We decode, pipe through whisper, and prepend
+// the transcript to the message text. The raw audio attachment is left in
+// place so the agent can still reference the file if needed.
+function createTranscriptionInterceptor(
+  hostOnInbound: ChannelSetup['onInbound'],
+): ChannelSetup['onInbound'] {
+  return async (platformId, threadId, message) => {
+    try {
+      if (
+        message.kind === 'chat-sdk' &&
+        message.content &&
+        typeof message.content === 'object'
+      ) {
+        const content = message.content as Record<string, unknown>;
+        const attachments = Array.isArray(content.attachments)
+          ? (content.attachments as Array<Record<string, unknown>>)
+          : [];
+        const voice = attachments.find((a) => {
+          const mime = typeof a.mimeType === 'string' ? a.mimeType : '';
+          const type = typeof a.type === 'string' ? a.type : '';
+          return mime.startsWith('audio/') || type === 'audio' || type === 'voice';
+        });
+        if (voice && typeof voice.data === 'string') {
+          const buf = Buffer.from(voice.data, 'base64');
+          const transcript = await transcribeAudioBuffer(buf);
+          if (transcript) {
+            const original = typeof content.text === 'string' ? content.text : '';
+            content.text = original
+              ? `[Voice transcript] ${transcript}\n\n${original}`
+              : `[Voice transcript] ${transcript}`;
+            log.info('Telegram voice transcribed', { length: transcript.length });
+          }
+        }
+      }
+    } catch (err) {
+      log.warn('Voice transcription failed — passing message through', { err });
+    }
+    await hostOnInbound(platformId, threadId, message);
+  };
 }
 
 function createPairingInterceptor(
@@ -235,7 +281,12 @@ registerChannelAdapter('telegram', {
       async setup(hostConfig: ChannelSetup) {
         const intercepted: ChannelSetup = {
           ...hostConfig,
-          onInbound: createPairingInterceptor(botUsernamePromise, hostConfig.onInbound, token),
+          onInbound: createPairingInterceptor(
+            botUsernamePromise,
+            // skill/voice-transcription
+            createTranscriptionInterceptor(hostConfig.onInbound),
+            token,
+          ),
         };
         return withRetry(() => bridge.setup(intercepted), 'bridge.setup');
       },
