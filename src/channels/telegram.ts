@@ -118,16 +118,10 @@ async function sendPairingConfirmation(token: string, platformId: string): Promi
 // already downloaded them). We decode, pipe through whisper, and prepend
 // the transcript to the message text. The raw audio attachment is left in
 // place so the agent can still reference the file if needed.
-function createTranscriptionInterceptor(
-  hostOnInbound: ChannelSetup['onInbound'],
-): ChannelSetup['onInbound'] {
+function createTranscriptionInterceptor(hostOnInbound: ChannelSetup['onInbound']): ChannelSetup['onInbound'] {
   return async (platformId, threadId, message) => {
     try {
-      if (
-        message.kind === 'chat-sdk' &&
-        message.content &&
-        typeof message.content === 'object'
-      ) {
+      if (message.kind === 'chat-sdk' && message.content && typeof message.content === 'object') {
         const content = message.content as Record<string, unknown>;
         const attachments = Array.isArray(content.attachments)
           ? (content.attachments as Array<Record<string, unknown>>)
