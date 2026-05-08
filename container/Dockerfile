@@ -12,6 +12,12 @@
 
 FROM node:22-slim
 
+# skill/coolify-deploy — protect this image from Coolify's nightly DockerCleanupJob.
+# Coolify only prunes images without `coolify.managed=true`. The bot's image must
+# survive because containers that aren't actively running at prune time would
+# otherwise look unused.
+LABEL coolify.managed=true
+
 # ---- Build-time arguments ----------------------------------------------------
 # CJK fonts add ~200MB. Opt in only if you render Chinese/Japanese/Korean text.
 ARG INSTALL_CJK_FONTS=false
