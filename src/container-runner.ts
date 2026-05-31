@@ -20,7 +20,16 @@ import {
   TIMEZONE,
 } from './config.js';
 import { readContainerConfig, writeContainerConfig } from './container-config.js';
-import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainer } from './container-runtime.js';
+import {
+  CONTAINER_RUNTIME_BIN,
+  // skill/image-self-heal
+  ensureAgentImage,
+  hostGatewayArgs,
+  readonlyMountArgs,
+  stopContainer,
+} from './container-runtime.js';
+// skill/image-self-heal
+import { getDefaultContainerImage } from './install-slug.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { getDb, hasTable } from './db/connection.js';
@@ -146,6 +155,12 @@ async function spawnContainer(session: Session): Promise<void> {
     contribution,
     agentIdentifier,
   );
+
+  // skill/image-self-heal — verify the agent image exists; if Coolify's
+  // buggy cleanup or anything else deleted it, rebuild before spawn.
+  // First spawn after process start eats one `docker image inspect`; if
+  // the image is missing the user pays a ~30s rebuild on the next message.
+  ensureAgentImage(getDefaultContainerImage());
 
   log.info('Spawning container', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
 

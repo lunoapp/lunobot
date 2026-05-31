@@ -4,6 +4,7 @@
  */
 import { execSync } from 'child_process';
 import os from 'os';
+import path from 'path';
 
 import { CONTAINER_INSTALL_LABEL } from './config.js';
 import { log } from './log.js';
@@ -54,6 +55,36 @@ export function ensureContainerRuntimeRunning(): void {
     throw new Error('Container runtime is required but failed to start', {
       cause: err,
     });
+  }
+}
+
+// skill/image-self-heal — check if the agent image exists; if not, rebuild
+// it synchronously via container/build.sh before the caller spawns a
+// container. Coolify's nightly DockerCleanupJob has a known Go-template
+// escaping bug (`{{{{...}}}}` instead of `{{...}}`) in its label-check
+// command, so `coolify.managed=true` doesn't actually protect the image
+// when disk usage crosses the threshold. Without this check, a deleted
+// image causes every container spawn to exit with docker code 125 and
+// the bot looks dead until someone manually rebuilds. Module-scope memo
+// keeps the cost to a single `docker image inspect` per process.
+let imageVerifiedThisProcess = false;
+export function ensureAgentImage(imageName: string, projectRoot: string = process.cwd()): void {
+  if (imageVerifiedThisProcess) return;
+  try {
+    execSync(`${CONTAINER_RUNTIME_BIN} image inspect ${imageName}`, { stdio: 'pipe', timeout: 5000 });
+    imageVerifiedThisProcess = true;
+    return;
+  } catch {
+    log.warn('Agent image missing — rebuilding via container/build.sh', { imageName });
+  }
+  const buildScript = path.join(projectRoot, 'container', 'build.sh');
+  try {
+    execSync(`bash ${buildScript}`, { stdio: 'pipe', timeout: 600_000, cwd: projectRoot });
+    imageVerifiedThisProcess = true;
+    log.info('Agent image rebuilt', { imageName });
+  } catch (err) {
+    log.error('Agent image rebuild failed', { imageName, err });
+    throw new Error(`Agent image ${imageName} missing and rebuild failed`, { cause: err });
   }
 }
 
