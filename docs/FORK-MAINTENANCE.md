@@ -11,7 +11,8 @@ This document is the canonical guide for keeping the fork in sync with upstream,
 | **Lubo persona** | `container/skills/lubo-persona/instructions.md` | Auto-loaded system-prompt fragment with identity, tone, behavior. Slim — no product facts (those come from luno repo mount). | `main` (additive — no upstream conflict) |
 | **luno marketing skills** | `container/skills/{write-luno,log-post,generate-image}/SKILL.md` | Slash commands for content drafting, Teable logging, Replicate image generation. | `main` (additive) |
 | **Voice transcription** | `src/transcription.ts` + hook in `src/channels/telegram.ts` | Local whisper.cpp on host, transcribes Telegram voice notes pre-router. | Skill branch `skill/voice-transcription` (patches upstream `telegram.ts`) |
-| **Coolify deploy** | `container/Dockerfile` | `LABEL coolify.managed=true` — protects image from Coolify cleanup cron. | Skill branch `skill/coolify-deploy` (patches upstream Dockerfile) |
+| **Coolify deploy** | `container/Dockerfile` | `LABEL coolify.managed=true` — Coolify is *supposed* to honour this; it doesn't always (see image-self-heal). | Skill branch `skill/coolify-deploy` (patches upstream Dockerfile) |
+| **Image self-heal** | `src/container-runtime.ts` + call site in `src/container-runner.ts` | `ensureAgentImage()` before each spawn — rebuilds via `container/build.sh` if missing. Defends against Coolify's buggy label-check (`{{{{...}}}}` Go-template over-escape). | Skill branch `skill/image-self-heal` (patches upstream `container-runtime.ts` + `container-runner.ts`) |
 | **Migration guide (v1→v2)** | `.nanoclaw-migrations/` | Historical reference. The actual migration ran in May 2026 via `migrate-v2.sh`. Keep as documentation. | `main` (additive) |
 | **Avatars + research docs** | `assets/avatar-*`, `docs/council/` | Branding + multi-LLM council notes. | `main` (additive) |
 | **Diagnostics opt-out** | `.claude/skills/{migrate-nanoclaw,update-nanoclaw}/diagnostics.md` | We don't ship telemetry. | `main` (overrides upstream) |
@@ -110,6 +111,9 @@ Always include a `.claude/skills/add-<name>/SKILL.md` documenting:
 | `~/credentials/google-service-account.json`, `~/credentials/github-app.pem` | nanoclaw home | Per the v1 setup. (v2 may not need these — verify before reinstalling.) |
 | Whisper binary + model | `/usr/local/bin/whisper-cli`, `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin` | Built from whisper.cpp source. See `.claude/skills/add-voice-transcription/SKILL.md`. |
 | `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state. Backed up via `~/backups/pre-v2-*` snapshots. |
+| OneCLI agents in `mode=all` | OneCLI vault on server | `luno` and `Jan` agents must be set to `secretMode=all` so all matching `hostPattern` secrets are injected. Default after migration is `selective` (zero secrets). Set via root: `onecli agents set-secret-mode --id <agent-id> --mode all`. Look up agent IDs via `onecli agents list`. |
+| Coolify `docker_cleanup_threshold=95` | coolify-db `server_settings` | Default 80% is too aggressive — disk hits threshold often, Coolify's buggy label-check deletes our image despite `coolify.managed=true`. SQL: `UPDATE server_settings SET docker_cleanup_threshold=95 WHERE server_id=0;` |
+| systemd timer `docker-builder-prune.timer` | `/etc/systemd/system/` | Weekly `docker builder prune -af` (Sundays 03:00 UTC) keeps BuildKit cache from accumulating GBs. See server install for unit + timer files. |
 
 ## Rollback
 
@@ -153,3 +157,4 @@ Things to verify on each upstream sync, because they touch our customizations or
 | `backup/v1-final` | v1 fork's final state before v2 migration | At least one full upstream cycle proves v2 is stable on this install |
 | `skill/voice-transcription` | Voice-transcription skill | Forever (re-merge target) |
 | `skill/coolify-deploy` | Coolify-deploy skill | Forever (re-merge target) |
+| `skill/image-self-heal` | Auto-rebuild missing agent image at spawn | Forever (re-merge target) |
