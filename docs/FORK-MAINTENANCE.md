@@ -112,7 +112,7 @@ Always include a `.claude/skills/add-<name>/SKILL.md` documenting:
 | Whisper binary + model | `/usr/local/bin/whisper-cli`, `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin` | Built from whisper.cpp source. See `.claude/skills/add-voice-transcription/SKILL.md`. |
 | `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state. Backed up via `~/backups/pre-v2-*` snapshots. |
 | OneCLI agents in `mode=all` | OneCLI vault on server | `luno` and `Jan` agents must be set to `secretMode=all` so all matching `hostPattern` secrets are injected. Default after migration is `selective` (zero secrets). Set via root: `onecli agents set-secret-mode --id <agent-id> --mode all`. Look up agent IDs via `onecli agents list`. |
-| Coolify `docker_cleanup_threshold=95` | coolify-db `server_settings` | Default 80% is too aggressive — disk hits threshold often, Coolify's buggy label-check deletes our image despite `coolify.managed=true`. SQL: `UPDATE server_settings SET docker_cleanup_threshold=95 WHERE server_id=0;` |
+| Coolify `docker_cleanup_threshold=85` | coolify-db `server_settings` | Lowered from default 80%; lowered again from 95% after we deployed `skill/image-self-heal`. 85% gives enough buffer for normal deploys without spam-notifying, and Coolify's buggy label-check is no longer a problem because the self-heal skill rebuilds nanoclaw's agent image on the next spawn if Coolify deletes it (~30s once-off latency). SQL: `UPDATE server_settings SET docker_cleanup_threshold=85 WHERE server_id=0;` |
 | systemd timer `docker-builder-prune.timer` | `/etc/systemd/system/` | Weekly `docker builder prune -af` (Sundays 03:00 UTC) keeps BuildKit cache from accumulating GBs. See server install for unit + timer files. |
 
 ## Rollback
