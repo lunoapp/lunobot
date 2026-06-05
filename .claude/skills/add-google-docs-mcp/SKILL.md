@@ -1,61 +1,96 @@
 ---
 name: add-google-docs-mcp
-description: Add Google Docs/Drive MCP server to the agent container so the bot can read/write Google Workspace docs. Service-account auth via SA JSON mounted from the host. Triggers on "google docs", "google drive", "mcp google".
+description: Add Google Docs/Drive/Sheets MCP server to the agent container. Auth via OneCLI-managed OAuth (Apps Framework). Triggers on "google docs", "google drive", "mcp google".
 ---
 
 # /add-google-docs-mcp
 
-Adds `@a-bonus/google-docs-mcp` to the container image and wires it as an MCP server per-group, auth via Google Service Account.
-
-## Why
-
-The bot uses `mcp__google-docs__*` tools to read/write Docs and Drive (e.g. fetch a planning doc, write a marketing brief). Without this skill, those tools are unavailable and the agent reports `MCP server disconnected`.
-
-We had this in v1 (Dockerfile pre-install + custom container-runner.ts auto-mounted the SA key). The v1 → v2 migration documented but didn't reapply it. This skill restores the behavior using v2-native extension points (Dockerfile patch + per-group `container.json`).
+Wires `@a-bonus/google-docs-mcp` into agent containers. Real OAuth tokens stay in the OneCLI vault; the container only sees `"onecli-managed"` placeholders. The gateway swaps placeholders for real Bearer tokens at request time.
 
 ## Apply (code)
 
 ```bash
 git fetch origin skill/google-docs-mcp
 git merge origin/skill/google-docs-mcp
-./container/build.sh   # bakes the binary into the image
+./container/build.sh
 ```
 
-Conflict-prone line: the ARG block + the install RUN. Marker `# skill/google-docs-mcp` on both.
+Patches `container/Dockerfile` to install `@a-bonus/google-docs-mcp@${GOOGLE_DOCS_MCP_VERSION}` globally. Marker `# skill/google-docs-mcp` on the ARG and RUN lines.
 
 ## Configure (per install)
 
-### 1. Provision the service account
-
-You need a Google Cloud Service Account JSON key with the Docs + Drive APIs enabled and read/write scopes granted to the docs/folders the bot should access.
-
-### 2. Place it on the host
+### 1. OneCLI ≥ 1.33 (Apps Framework)
 
 ```bash
-mkdir -p ~/credentials && chmod 700 ~/credentials
-# Drop the SA JSON here:
-#   ~/credentials/google-service-account.json   (chmod 600)
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:10254/api/apps
 ```
 
-### 3. Allowlist the mount
+Expected: `200`. If `404`, OneCLI is too old — upgrade via the Coolify-managed compose at `/data/coolify/services/<onecli-uuid>/docker-compose.yml` (or the OneCLI install script).
 
-Edit `~/.config/nanoclaw/mount-allowlist.json` and add:
+### 2. Connect Google apps via Web UI
+
+OneCLI Web UI is bound to `127.0.0.1:10254`. From a workstation:
+
+```bash
+ssh -L 10254:127.0.0.1:10254 <host>
+```
+
+Browser → `http://localhost:10254` → **Connections** → for each of **Google Drive**, **Google Docs**, **Google Sheets**:
+
+- Toggle **"Use your own developer credentials"** ON
+- Paste the same `client_id` + `client_secret` from a GCP OAuth Client (Desktop type — accepts `http://localhost:*` redirect URIs without explicit config)
+- **Save credentials** → **Connect** → OAuth flow as the target account → grant scopes
+
+After all three are connected: `curl http://127.0.0.1:10254/api/apps | python3 -c '...'` should show `status=connected` on each.
+
+### 3. Per-agent secret mode
+
+```bash
+onecli agents list
+onecli agents set-secret-mode --id <agent-id> --mode all
+```
+
+`mode=all` means matching app connections auto-inject into the agent's containers. `selective` would require explicit per-agent app linking.
+
+### 4. Stub credentials on host
+
+`@a-bonus/google-docs-mcp` reads its token from `~/.config/google-docs-mcp/token.json`. With OneCLI-managed pattern, that file holds only sentinel values:
+
+```bash
+mkdir -p ~nanoclaw/.config/google-docs-mcp
+cat > ~nanoclaw/.config/google-docs-mcp/token.json <<'JSON'
+{
+  "access_token": "onecli-managed",
+  "refresh_token": "onecli-managed",
+  "token_type": "Bearer",
+  "expiry_date": 99999999999999,
+  "scope": "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/spreadsheets"
+}
+JSON
+chown -R nanoclaw:nanoclaw ~nanoclaw/.config/google-docs-mcp
+chmod 700 ~nanoclaw/.config/google-docs-mcp
+chmod 600 ~nanoclaw/.config/google-docs-mcp/token.json
+```
+
+`expiry_date` is set to far future so the MCP server never tries to refresh the placeholder.
+
+### 5. Mount allowlist
+
+Add to `~nanoclaw/.config/nanoclaw/mount-allowlist.json` under `allowedRoots`:
 
 ```json
 {
-  "path": "/home/<user>/credentials",
+  "path": "/home/nanoclaw/.config/google-docs-mcp",
   "allowReadWrite": false,
-  "description": "Google SA + GitHub App key (read-only for agent)"
+  "description": "Google Docs MCP stub (OneCLI-managed real tokens)"
 }
 ```
 
-(Don't add the whole `~/` — too broad. Just the credentials dir.)
+Restart the NanoClaw service so the cached allowlist reloads.
 
-Then restart NanoClaw so the allowlist cache reloads.
+### 6. Per-group `container.json`
 
-### 4. Wire each agent group
-
-For every `groups/<folder>/container.json` that should access Google Docs, add:
+For each group that should get Google access:
 
 ```json
 {
@@ -64,51 +99,49 @@ For every `groups/<folder>/container.json` that should access Google Docs, add:
       "command": "google-docs-mcp",
       "args": [],
       "env": {
-        "SERVICE_ACCOUNT_PATH": "/workspace/extra/credentials/google-service-account.json"
+        "GOOGLE_CLIENT_ID": "onecli-managed",
+        "GOOGLE_CLIENT_SECRET": "onecli-managed",
+        "HOME": "/workspace/extra"
       }
     }
   },
   "additionalMounts": [
     {
-      "hostPath": "/home/<user>/credentials",
-      "containerPath": "credentials",
-      "readonly": true
+      "hostPath": "/home/nanoclaw/.config/google-docs-mcp",
+      "containerPath": ".config/google-docs-mcp",
+      "readonly": false
     }
   ]
 }
 ```
 
-Merge alongside any existing `additionalMounts` (e.g. the luno repo mount); both can coexist.
+`HOME=/workspace/extra` is what makes the MCP server resolve `~/.config/google-docs-mcp/token.json` to `/workspace/extra/.config/google-docs-mcp/token.json` — the path the mount lands at. The matching `containerPath: ".config/google-docs-mcp"` (note the subdir, not a flat name) is critical.
 
-### 5. Stop running containers so the next message picks up the new config
+### 7. Cycle running containers
 
 ```bash
 docker ps --filter name=nanoclaw-v2 --format '{{.Names}}' | xargs -r docker stop
 ```
 
+Next agent message spawns a fresh container with the new mount + env.
+
 ## Verify
 
-```bash
-# In a fresh chat session, ask the bot:
-#   "list deine google-docs MCP tools"
-# Expected: it names mcp__google-docs__* tools and demonstrates one read.
-```
+In the wired agent's chat: *"Leg ein Test-Doc im <target folder> an mit Titel 'X' und schreib 'Y' rein."* Expected: bot creates the doc and returns its URL.
 
-If the bot reports `MCP server disconnected`, check:
-- Container has the binary: `docker run --rm --entrypoint sh nanoclaw-agent-v2-<slug>:latest -c 'which google-docs-mcp'`
-- Mount is visible: `docker inspect <container> --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'`
-- SA file readable in container: `docker exec <container> ls /workspace/extra/credentials/`
+If the MCP server reports "No saved token found. Starting interactive authentication flow…" check that:
+- `HOME` env in `container.json` matches the mount parent
+- `containerPath` resolves to `<HOME>/.config/google-docs-mcp/`
+- The mounted `token.json` is readable inside the container (`docker exec <name> cat /workspace/extra/.config/google-docs-mcp/token.json`)
 
 ## Files touched
 
 | File | Change |
 |------|--------|
-| `container/Dockerfile` | ARG `GOOGLE_DOCS_MCP_VERSION` + RUN install |
+| `container/Dockerfile` | `ARG GOOGLE_DOCS_MCP_VERSION=<pinned>` + `RUN pnpm install -g "@a-bonus/google-docs-mcp@${GOOGLE_DOCS_MCP_VERSION}"` |
 
-Plus per-install (not in repo): mount-allowlist entry, per-group `container.json` mcpServers/additionalMounts, SA JSON on host.
+Per-install (not in repo): OneCLI app connections, mount-allowlist entry, per-group `container.json` `mcpServers`/`additionalMounts`, stub `token.json` on host.
 
 ## Update strategy
 
-When upstream Dockerfile changes, the ARG and RUN lines might drift. Markers (`# skill/google-docs-mcp`) make conflicts obvious.
-
-Bump `GOOGLE_DOCS_MCP_VERSION` deliberately — check the changelog at https://www.npmjs.com/package/@a-bonus/google-docs-mcp before bumping.
+Bump `GOOGLE_DOCS_MCP_VERSION` deliberately — check the changelog at https://www.npmjs.com/package/@a-bonus/google-docs-mcp first. Verify the credential file shape hasn't changed at https://onecli.sh/docs/guides/credential-stubs/google-drive.md (or the general-app fallback).
