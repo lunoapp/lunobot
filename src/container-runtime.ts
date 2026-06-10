@@ -65,14 +65,14 @@ export function ensureContainerRuntimeRunning(): void {
 // command, so `coolify.managed=true` doesn't actually protect the image
 // when disk usage crosses the threshold. Without this check, a deleted
 // image causes every container spawn to exit with docker code 125 and
-// the bot looks dead until someone manually rebuilds. Module-scope memo
-// keeps the cost to a single `docker image inspect` per process.
-let imageVerifiedThisProcess = false;
+// the bot looks dead until someone manually rebuilds. `docker image
+// inspect` costs a few ms per spawn — cheaper than a code-125 container
+// — so we do it every time rather than memo-ing (memoing the success
+// case across the host lifetime is the bug this self-heal must avoid:
+// image deletion happens AFTER process start, not before).
 export function ensureAgentImage(imageName: string, projectRoot: string = process.cwd()): void {
-  if (imageVerifiedThisProcess) return;
   try {
     execSync(`${CONTAINER_RUNTIME_BIN} image inspect ${imageName}`, { stdio: 'pipe', timeout: 5000 });
-    imageVerifiedThisProcess = true;
     return;
   } catch {
     log.warn('Agent image missing — rebuilding via container/build.sh', { imageName });
@@ -80,7 +80,6 @@ export function ensureAgentImage(imageName: string, projectRoot: string = proces
   const buildScript = path.join(projectRoot, 'container', 'build.sh');
   try {
     execSync(`bash ${buildScript}`, { stdio: 'pipe', timeout: 600_000, cwd: projectRoot });
-    imageVerifiedThisProcess = true;
     log.info('Agent image rebuilt', { imageName });
   } catch (err) {
     log.error('Agent image rebuild failed', { imageName, err });
