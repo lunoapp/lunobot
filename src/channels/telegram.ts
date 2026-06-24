@@ -11,7 +11,7 @@ import { createMessagingGroup, getMessagingGroupByPlatform, updateMessagingGroup
 import { grantRole, hasAnyOwner } from '../modules/permissions/db/user-roles.js';
 import { upsertUser } from '../modules/permissions/db/users.js';
 import { createChatSdkBridge, type ReplyContext } from './chat-sdk-bridge.js';
-import { demoteTelegramHeadings, enforceGermanTypography } from './telegram-typography.js';
+import { normalizeTelegramOutbound } from './telegram-normalize.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import type { ChannelAdapter, ChannelSetup, InboundMessage } from './adapter.js';
 import { tryConsume } from './telegram-pairing.js';
@@ -251,11 +251,11 @@ registerChannelAdapter('telegram', {
       supportsThreads: false,
       // @chat-adapter/telegram >=4.31 emits MarkdownV2 via its own converter
       // with a plain-text fallback, so no markdown pre-sanitizing is needed.
-      // Outbound rewrites we enforce mechanically (the agent doesn't reliably
-      // follow the prompt rules): German typography (em-dash to en-dash) and
-      // demoting Markdown headings to bold (Telegram has no headings; they
-      // render oversized). See telegram-typography.ts.
-      transformOutboundText: (text) => demoteTelegramHeadings(enforceGermanTypography(text)),
+      // Mechanical outbound normalization (em-dash → en-dash, headings → bold,
+      // "•" → Markdown list). The agent doesn't reliably follow the prompt
+      // rules, so the hard constraints are enforced on the wire. See
+      // telegram-normalize.ts.
+      transformOutboundText: normalizeTelegramOutbound,
       maxTextLength: 4000,
     });
 
