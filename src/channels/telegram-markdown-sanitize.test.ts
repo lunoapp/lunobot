@@ -75,4 +75,15 @@ describe('sanitizeTelegramLegacyMarkdown', () => {
     const input = '```\n---\n```';
     expect(sanitizeTelegramLegacyMarkdown(input)).toBe(input);
   });
+
+  it('strips angle brackets around URLs so they auto-link cleanly', () => {
+    expect(sanitizeTelegramLegacyMarkdown('Issue: <https://github.com/lunoapp/luno/issues/648>')).toBe(
+      'Issue: https://github.com/lunoapp/luno/issues/648',
+    );
+  });
+
+  it('leaves angle-bracketed URLs inside code blocks alone', () => {
+    const input = '```\n<https://example.com/x>\n```';
+    expect(sanitizeTelegramLegacyMarkdown(input)).toBe(input);
+  });
 });

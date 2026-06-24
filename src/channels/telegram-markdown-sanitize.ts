@@ -21,6 +21,12 @@ export function sanitizeTelegramLegacyMarkdown(input: string): string {
     return `${PLACEHOLDER_PREFIX}${codeSegments.length - 1}${PLACEHOLDER_SUFFIX}`;
   });
 
+  // The agent habitually wraps URLs in angle brackets (`<https://…>`), a
+  // CommonMark autolink that Telegram's legacy parser renders with literal
+  // `<>` around the (otherwise clickable) URL. Strip the brackets so the bare
+  // URL auto-links cleanly. Code spans are already placeholdered out above.
+  text = text.replace(/<((?:https?|tg):\/\/[^\s<>]+)>/g, '$1');
+
   // The adapter re-parses and re-stringifies markdown before sending, which
   // rewrites `- item` list bullets into `* item` — injecting unbalanced
   // asterisks that Telegram's legacy Markdown parser then rejects. Replace
