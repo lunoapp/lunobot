@@ -441,6 +441,11 @@ function ensureRuntimeFields(
   }
 }
 
+// Agent groups that get the GitHub App tool wired in (luno team chat + Jan's
+// private chat). The App is scoped to lunoapp/luno, so this only grants what
+// the App already allows. Add a group name here to extend access.
+const GITHUB_ENABLED_GROUPS = new Set(['luno', 'Jan']);
+
 /**
  * Mint a short-lived (1h) GitHub App installation access token host-side.
  *
@@ -524,10 +529,11 @@ async function buildContainerArgs(
     args.push('-e', 'HOME=/home/node');
   }
 
-  // GitHub App tool (luno group only) — mint a short-lived installation token
-  // host-side and pass ONLY the token in. The runner enables github-mcp-server
+  // GitHub App tool — mint a short-lived installation token host-side and pass
+  // ONLY the token in (key stays on host). The runner enables github-mcp-server
   // iff GITHUB_PERSONAL_ACCESS_TOKEN is present (container/agent-runner/index.ts).
-  if (agentGroup.name === 'luno') {
+  // Enabled for the owner's own agents; the App is scoped to lunoapp/luno only.
+  if (GITHUB_ENABLED_GROUPS.has(agentGroup.name)) {
     const ghToken = await mintGithubAppToken();
     if (ghToken) {
       args.push('-e', `GITHUB_PERSONAL_ACCESS_TOKEN=${ghToken}`);
