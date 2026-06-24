@@ -225,6 +225,7 @@ This project uses pnpm with `minimumReleaseAge: 4320` (3 days) in `pnpm-workspac
 
 | Doc | Purpose |
 |-----|---------|
+| [docs/onecli.md](docs/onecli.md) | OneCLI credential model — proxy+inject mechanism, full SDK/CLI surface, and the hard limit that non-HTTP protocols (IMAP/SMTP/SSH) cannot use OneCLI creds. Read before designing any credential-needing feature. |
 | [docs/architecture.md](docs/architecture.md) | Full architecture writeup |
 | [docs/api-details.md](docs/api-details.md) | Host API + DB schema details |
 | [docs/db.md](docs/db.md) | DB architecture overview: three-DB model, cross-mount rules, readers/writers map |
