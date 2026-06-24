@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { enforceGermanTypography } from './telegram-typography.js';
+import { demoteTelegramHeadings, enforceGermanTypography } from './telegram-typography.js';
 
 describe('enforceGermanTypography', () => {
   it('rewrites a spaced em-dash to a spaced en-dash', () => {
-    expect(enforceGermanTypography('Pata Soul ist drin — Status offen.')).toBe(
-      'Pata Soul ist drin – Status offen.',
-    );
+    expect(enforceGermanTypography('Pata Soul ist drin — Status offen.')).toBe('Pata Soul ist drin – Status offen.');
   });
 
   it('rewrites multiple em-dashes in one message', () => {
@@ -24,5 +22,24 @@ describe('enforceGermanTypography', () => {
 
   it('is a no-op on empty input', () => {
     expect(enforceGermanTypography('')).toBe('');
+  });
+});
+
+describe('demoteTelegramHeadings', () => {
+  it('converts # / ## / ### headings to bold', () => {
+    expect(demoteTelegramHeadings('# 622 Gewerbeanmeldung')).toBe('**622 Gewerbeanmeldung**');
+    expect(demoteTelegramHeadings('### Hintergrund')).toBe('**Hintergrund**');
+  });
+
+  it('demotes only heading lines, leaving surrounding text', () => {
+    expect(demoteTelegramHeadings('Intro\n## Titel\n- Punkt')).toBe('Intro\n**Titel**\n- Punkt');
+  });
+
+  it('leaves a `#` that is not a heading marker alone', () => {
+    expect(demoteTelegramHeadings('Issue #648 ist offen')).toBe('Issue #648 ist offen');
+  });
+
+  it('does not touch `#` lines inside code blocks', () => {
+    expect(demoteTelegramHeadings('```\n# not a heading\n```')).toBe('```\n# not a heading\n```');
   });
 });

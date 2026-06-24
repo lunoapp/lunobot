@@ -21,3 +21,19 @@ export function enforceGermanTypography(text: string): string {
   const fixed = masked.replace(/—/g, '–');
   return fixed.replace(/\x00(\d+)\x00/g, (_, i) => code[Number(i)]);
 }
+
+const HEADING_PATTERN = /^[ \t]*#{1,6}[ \t]+(.+?)[ \t]*$/gm;
+
+/**
+ * Telegram has no headings — the MarkdownV2 converter renders `#`/`##` lines as
+ * oversized text that breaks the flow of an otherwise clean message. The agent
+ * uses them anyway despite the persona saying not to, so convert heading lines
+ * to bold: emphasis is kept, at normal size. Code blocks are preserved.
+ */
+export function demoteTelegramHeadings(text: string): string {
+  if (!text) return text;
+  const code: string[] = [];
+  const masked = text.replace(CODE_PATTERN, (m) => `\x00${code.push(m) - 1}\x00`);
+  const fixed = masked.replace(HEADING_PATTERN, '**$1**');
+  return fixed.replace(/\x00(\d+)\x00/g, (_, i) => code[Number(i)]);
+}
