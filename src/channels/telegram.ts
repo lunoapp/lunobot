@@ -11,7 +11,6 @@ import { createMessagingGroup, getMessagingGroupByPlatform, updateMessagingGroup
 import { grantRole, hasAnyOwner } from '../modules/permissions/db/user-roles.js';
 import { upsertUser } from '../modules/permissions/db/users.js';
 import { createChatSdkBridge, type ReplyContext } from './chat-sdk-bridge.js';
-import { sanitizeTelegramLegacyMarkdown } from './telegram-markdown-sanitize.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import type { ChannelAdapter, ChannelSetup, InboundMessage } from './adapter.js';
 import { tryConsume } from './telegram-pairing.js';
@@ -249,7 +248,8 @@ registerChannelAdapter('telegram', {
       concurrency: 'concurrent',
       extractReplyContext,
       supportsThreads: false,
-      transformOutboundText: sanitizeTelegramLegacyMarkdown,
+      // @chat-adapter/telegram >=4.31 emits MarkdownV2 via its own converter
+      // with a plain-text fallback on parse failure — no pre-sanitizing needed.
       maxTextLength: 4000,
     });
 
