@@ -1,4 +1,4 @@
-import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
+import { findByName, findByRouting, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
@@ -468,8 +468,20 @@ function dispatchResultText(text: string, routing: RoutingContext): void {
     log(`[scratchpad] ${scratchpad.slice(0, 500)}${scratchpad.length > 500 ? '…' : ''}`);
   }
 
-  if (sent === 0 && text.trim()) {
-    log(`WARNING: agent output had no <message to="..."> blocks — nothing was sent`);
+  if (sent === 0 && scratchpad) {
+    // The model intermittently drops the <message to="…"> wrapping discipline
+    // (the destinations stay in the system prompt — see buildDestinationsSection).
+    // Without a fallback the whole answer is silently dropped and the chat looks
+    // dead. Deliver bare output to the destination the message came from;
+    // findByRouting resolves exactly the origin channel, so there is no risk of
+    // leaking to another destination.
+    const origin = findByRouting(routing.channelType, routing.platformId);
+    if (origin) {
+      sendToDestination(origin, scratchpad, routing);
+      log(`No <message> block — delivered to origin "${origin.name}" as fallback`);
+    } else {
+      log(`WARNING: agent output had no <message> block and no resolvable origin — nothing was sent`);
+    }
   }
 }
 
