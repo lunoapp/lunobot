@@ -81,6 +81,24 @@ async function main(): Promise<void> {
     },
   };
 
+  // GitHub's official MCP server — enabled only when the host injected a
+  // GitHub App installation token (see src/container-runner.ts). Token scope is
+  // capped by the App (issues:write, contents:read), so the toolset list is just
+  // an ergonomic default; anything beyond the App's grant fails server-side.
+  // Forward the OneCLI proxy + CA env so api.github.com calls pass through the
+  // gateway and trust its MITM cert (Go honors SSL_CERT_FILE).
+  if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
+    const ghEnv: Record<string, string> = {
+      GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN,
+      GITHUB_TOOLSETS: 'repos,issues,context',
+    };
+    for (const k of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_FILE']) {
+      if (process.env[k]) ghEnv[k] = process.env[k] as string;
+    }
+    mcpServers.github = { command: 'github-mcp-server', args: ['stdio'], env: ghEnv };
+    log('GitHub MCP server enabled (App token present)');
+  }
+
   for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
     mcpServers[name] = serverConfig;
     log(`Additional MCP server: ${name} (${serverConfig.command})`);

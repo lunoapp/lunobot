@@ -31,6 +31,9 @@ ARG VERCEL_VERSION=52.2.1
 ARG BUN_VERSION=1.3.12
 # skill/google-docs-mcp — pin Google Docs MCP server (used by the bot when SERVICE_ACCOUNT_PATH is set)
 ARG GOOGLE_DOCS_MCP_VERSION=1.10.0
+# GitHub's official MCP server (Go binary) — enabled per-group when the host
+# injects GITHUB_PERSONAL_ACCESS_TOKEN (minted from the GitHub App). Pin exact.
+ARG GITHUB_MCP_VERSION=1.4.0
 
 # ---- System dependencies -----------------------------------------------------
 # tini: correct PID 1 / signal forwarding so outbound.db writes finalize on
@@ -121,6 +124,14 @@ RUN --mount=type=cache,target=/root/.cache/pnpm \
 # skill/google-docs-mcp — Google Docs/Drive MCP server, auth via SA file at runtime
 RUN --mount=type=cache,target=/root/.cache/pnpm \
     pnpm install -g "@a-bonus/google-docs-mcp@${GOOGLE_DOCS_MCP_VERSION}"
+
+# GitHub MCP server — official Go binary from github/github-mcp-server releases.
+# Trusts the OneCLI MITM CA via SSL_CERT_FILE (Go honors it) when routed through
+# the gateway proxy; falls back to direct TLS otherwise.
+RUN curl -fsSL "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_VERSION}/github-mcp-server_Linux_x86_64.tar.gz" \
+      | tar -xz -C /usr/local/bin github-mcp-server \
+    && chmod +x /usr/local/bin/github-mcp-server \
+    && /usr/local/bin/github-mcp-server --version
 
 # ---- Entrypoint --------------------------------------------------------------
 COPY entrypoint.sh /app/entrypoint.sh

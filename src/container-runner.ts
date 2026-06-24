@@ -4,6 +4,7 @@
  * The container runs the v2 agent-runner which polls the session DB.
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -20,6 +21,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { readContainerConfig, writeContainerConfig } from './container-config.js';
+import { readEnvFile } from './env.js';
 import {
   CONTAINER_RUNTIME_BIN,
   // skill/image-self-heal
@@ -439,6 +441,42 @@ function ensureRuntimeFields(
   }
 }
 
+/**
+ * Mint a short-lived (1h) GitHub App installation access token host-side.
+ *
+ * The App private key lives only on the host (`~/agent-keys/github-app.pem`,
+ * 0600) and is NEVER passed into the container — we sign the JWT and exchange
+ * it for an installation token here, then inject only that token. App id +
+ * installation id come from `.env` (GITHUB_APP_ID / GITHUB_APP_INSTALLATION_ID).
+ * Returns null (and the caller skips injection) if anything is unconfigured.
+ */
+async function mintGithubAppToken(): Promise<string | null> {
+  const env = readEnvFile(['GITHUB_APP_ID', 'GITHUB_APP_INSTALLATION_ID']);
+  const appId = env.GITHUB_APP_ID;
+  const installationId = env.GITHUB_APP_INSTALLATION_ID;
+  const keyPath = path.join(process.env.HOME || '/home/nanoclaw', 'agent-keys', 'github-app.pem');
+  if (!appId || !installationId || !fs.existsSync(keyPath)) return null;
+
+  try {
+    const privateKey = fs.readFileSync(keyPath, 'utf8');
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ iat: now - 60, exp: now + 600, iss: appId })).toString('base64url');
+    const signature = crypto.sign('sha256', Buffer.from(`${header}.${payload}`), privateKey).toString('base64url');
+    const jwt = `${header}.${payload}.${signature}`;
+
+    const res = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json' },
+    });
+    const data = (await res.json()) as { token?: string };
+    return data.token ?? null;
+  } catch (err) {
+    log.warn('GitHub App token mint failed', { err });
+    return null;
+  }
+}
+
 async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
@@ -484,6 +522,19 @@ async function buildContainerArgs(
   if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
     args.push('--user', `${hostUid}:${hostGid}`);
     args.push('-e', 'HOME=/home/node');
+  }
+
+  // GitHub App tool (luno group only) — mint a short-lived installation token
+  // host-side and pass ONLY the token in. The runner enables github-mcp-server
+  // iff GITHUB_PERSONAL_ACCESS_TOKEN is present (container/agent-runner/index.ts).
+  if (agentGroup.name === 'luno') {
+    const ghToken = await mintGithubAppToken();
+    if (ghToken) {
+      args.push('-e', `GITHUB_PERSONAL_ACCESS_TOKEN=${ghToken}`);
+      log.info('GitHub App token injected', { containerName });
+    } else {
+      log.warn('GitHub App token unavailable — github-mcp-server will stay off', { containerName });
+    }
   }
 
   // Volume mounts
