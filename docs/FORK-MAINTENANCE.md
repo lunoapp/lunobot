@@ -21,6 +21,16 @@ This document is the canonical guide for keeping the fork in sync with upstream,
 
 The `// skill/voice-transcription` and `# skill/coolify-deploy` markers in the touch points make conflicts trivial to find on an upstream re-merge.
 
+## Runtime: Docker only — never adopt Apple-container or native-credential-proxy
+
+This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is no local Apple-container operation. The old dual-runtime idea (Docker on server, Apple container locally) was an early-days mistake and should disappear, not be preserved.
+
+- Container runtime is **Docker**; no runtime detection needed.
+- On refactors, **remove** Apple-container code paths in `src/container-runtime.ts` / `src/container-runner.ts` (the `CONTAINER_RUNTIME` env, `host.docker.internal` vs bridge-IP, /dev/null-mount vs entrypoint mount-bind) — don't carry them forward.
+- Upstream skill `skill/apple-container`: **never merge.**
+- Upstream skill `skill/native-credential-proxy`: **never merge** — it replaces OneCLI entirely, and the server needs OneCLI for credential injection.
+- On any upstream pull/merge, drop Apple-container customizations from the migration guide.
+
 ## Architecture notes
 
 - **Server is the single deployment** — `ssh luno`, runs as user `nanoclaw` at `/home/nanoclaw/nanoclaw-v2`.
