@@ -34,6 +34,12 @@ ARG GOOGLE_DOCS_MCP_VERSION=1.10.0
 # GitHub's official MCP server (Go binary) — enabled per-group when the host
 # injects GITHUB_PERSONAL_ACCESS_TOKEN (minted from the GitHub App). Pin exact.
 ARG GITHUB_MCP_VERSION=1.4.0
+# Supabase MCP server — wired per-group via container.json (read-only DB access).
+# Authenticated with a read-only, single-project PAT in SUPABASE_ACCESS_TOKEN
+# (set in the group's container.json, server-local). The server uses
+# openapi-fetch and calls api.supabase.com directly — same env-var token model
+# as the GitHub MCP here, not the OneCLI proxy path.
+ARG SUPABASE_MCP_VERSION=0.8.2
 
 # ---- System dependencies -----------------------------------------------------
 # tini: correct PID 1 / signal forwarding so outbound.db writes finalize on
@@ -124,6 +130,12 @@ RUN --mount=type=cache,target=/root/.cache/pnpm \
 # skill/google-docs-mcp — Google Docs/Drive MCP server, auth via SA file at runtime
 RUN --mount=type=cache,target=/root/.cache/pnpm \
     pnpm install -g "@a-bonus/google-docs-mcp@${GOOGLE_DOCS_MCP_VERSION}"
+
+# Supabase MCP server (read-only DB access). Installed via pnpm to respect the
+# supply-chain policy. Invoked by its bin name `mcp-server-supabase` from the
+# group's container.json; reads the PAT from SUPABASE_ACCESS_TOKEN.
+RUN --mount=type=cache,target=/root/.cache/pnpm \
+    pnpm install -g "@supabase/mcp-server-supabase@${SUPABASE_MCP_VERSION}"
 
 # GitHub MCP server — official Go binary from github/github-mcp-server releases.
 # Trusts the OneCLI MITM CA via SSL_CERT_FILE (Go honors it) when routed through
