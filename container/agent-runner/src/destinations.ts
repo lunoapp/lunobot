@@ -128,6 +128,10 @@ function buildDestinationsSection(): string {
   );
   lines.push('');
   lines.push(
+    'Anything you have already sent via `send_message` is delivered — do not restate or re-summarize it in your final response. Use the final response only for content you have not already sent; if `send_message` already covered everything, end the turn without a message block.',
+  );
+  lines.push('');
+  lines.push(
     'For a short turn, do not narrate. For longer work, send one acknowledgment and then updates only at meaningful milestones, especially before slow operations. Never narrate micro-steps; finish with the outcome, not a play-by-play.',
   );
   return lines.join('\n');

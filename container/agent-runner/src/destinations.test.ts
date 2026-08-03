@@ -43,6 +43,14 @@ describe('buildSystemPromptAddendum — multi-destination routing guidance', () 
     expect(prompt).toContain('`casa`');
   });
 
+  it('tells the agent not to restate what send_message already delivered', () => {
+    seedDestination('casa', 'Casa', 'whatsapp', 'group-1@g.us');
+
+    const prompt = buildSystemPromptAddendum('Casa');
+
+    expect(prompt).toContain('do not restate or re-summarize it in your final response');
+  });
+
   it('handles the no-destination case without crashing', () => {
     const prompt = buildSystemPromptAddendum('Casa');
 
