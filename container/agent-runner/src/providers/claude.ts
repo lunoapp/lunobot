@@ -47,7 +47,12 @@ export const SDK_DISALLOWED_TOOLS = [
 // added via `add_mcp_server` (or wired in container.json directly) is
 // reachable to the agent — without this, the SDK's allowedTools filter
 // silently drops every MCP namespace not listed here.
+//
+// Every entry must name a tool the pinned CLI actually offers; claude.tools.test.ts
+// asserts that against a wire capture. `ToolSearch` is deliberately absent —
+// it only exists while the CLI defers tools, and this runner keeps deferral off.
 export const TOOL_ALLOWLIST = [
+  'Agent',
   'Bash',
   'Read',
   'Write',
@@ -56,11 +61,9 @@ export const TOOL_ALLOWLIST = [
   'Grep',
   'WebSearch',
   'WebFetch',
-  'Task',
   'TaskOutput',
   'TaskStop',
   'TodoWrite',
-  'ToolSearch',
   'Skill',
   'NotebookEdit',
 ];

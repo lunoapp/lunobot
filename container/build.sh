@@ -38,6 +38,9 @@ echo "Image: ${IMAGE_NAME}:${TAG}"
 ${CONTAINER_RUNTIME} build "${BUILD_ARGS[@]}" -t "${IMAGE_NAME}:${TAG}" .
 
 echo ""
+"$SCRIPT_DIR/check-tool-surface.sh" "${IMAGE_NAME}:${TAG}"
+
+echo ""
 echo "Build complete!"
 echo "Image: ${IMAGE_NAME}:${TAG}"
 echo ""
