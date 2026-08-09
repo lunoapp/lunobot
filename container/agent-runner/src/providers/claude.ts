@@ -22,7 +22,12 @@ function log(msg: string): void {
 //   the question and blocks on the real reply.
 // - EnterPlanMode / ExitPlanMode / EnterWorktree / ExitWorktree: Claude
 //   Code UI affordances; in a headless container they'd appear stuck.
-const SDK_DISALLOWED_TOOLS = [
+// - SendMessage / TeamCreate / TeamDelete: Claude Code's in-process
+//   agent-team messaging. `SendMessage` is a name-alike trap for our own
+//   mcp__nanoclaw__send_message — it accepts a destination, reports
+//   success, and drops the message into an inbox no one reads. Delivery
+//   here goes through the outbound DB, never through SDK teams.
+export const SDK_DISALLOWED_TOOLS = [
   'CronCreate',
   'CronDelete',
   'CronList',
@@ -32,6 +37,9 @@ const SDK_DISALLOWED_TOOLS = [
   'ExitPlanMode',
   'EnterWorktree',
   'ExitWorktree',
+  'SendMessage',
+  'TeamCreate',
+  'TeamDelete',
 ];
 
 // Tool allowlist for NanoClaw agent containers. MCP-tool entries are derived
@@ -39,7 +47,7 @@ const SDK_DISALLOWED_TOOLS = [
 // added via `add_mcp_server` (or wired in container.json directly) is
 // reachable to the agent — without this, the SDK's allowedTools filter
 // silently drops every MCP namespace not listed here.
-const TOOL_ALLOWLIST = [
+export const TOOL_ALLOWLIST = [
   'Bash',
   'Read',
   'Write',
@@ -51,9 +59,6 @@ const TOOL_ALLOWLIST = [
   'Task',
   'TaskOutput',
   'TaskStop',
-  'TeamCreate',
-  'TeamDelete',
-  'SendMessage',
   'TodoWrite',
   'ToolSearch',
   'Skill',
@@ -244,6 +249,21 @@ function createPreCompactHook(assistantName?: string): HookCallback {
 const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '165000';
 
 /**
+ * Claude-specific env applied to every query.
+ *
+ * ENABLE_TOOL_SEARCH=0 keeps every tool in the model's direct tool list.
+ * With tool search on, the SDK defers tools behind ToolSearch and the agent
+ * has to guess which ones to load by name — it reached for the builtin
+ * `SendMessage` instead of `mcp__nanoclaw__send_message` and every reply
+ * vanished into an SDK team inbox. Our tool set is small enough that
+ * deferral buys nothing here.
+ */
+export const CLAUDE_ENV_DEFAULTS: Record<string, string> = {
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+  ENABLE_TOOL_SEARCH: '0',
+};
+
+/**
  * Stale-session detection. Matches Claude Code's error text when a
  * resumed session can't be found — missing transcript .jsonl, unknown
  * session ID, etc.
@@ -264,7 +284,7 @@ export class ClaudeProvider implements AgentProvider {
     this.additionalDirectories = options.additionalDirectories;
     this.env = {
       ...(options.env ?? {}),
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+      ...CLAUDE_ENV_DEFAULTS,
     };
   }
 
