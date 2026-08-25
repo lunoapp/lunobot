@@ -79,7 +79,15 @@ For personal automation on capable hardware, the tradeoff favors local. For comp
 
 ## Reverting to Claude
 
-Remove the `env` and `blockedHosts` keys from `groups/<folder>/container.json`, remove `"model"` from the shared settings file, and restart the service. No rebuild needed.
+Remove the `env` and `blockedHosts` keys from `groups/<folder>/container.json`, remove `"model"` from the shared settings file, then stop the group's running container so the next message spawns a fresh one:
+
+```bash
+docker ps --filter name=nanoclaw-v2 --format '{{.Names}}' | xargs -r docker stop
+```
+
+No rebuild needed. Restarting the service is *not* enough — the unit runs with
+`KillMode=process`, so spawned containers survive it and keep the old `container.json`
+until they exit. See `docs/FORK-MAINTENANCE.md`, "Making a `container.json` change take effect".
 
 ## See Also
 

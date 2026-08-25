@@ -34,12 +34,13 @@ This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is
 ## Architecture notes
 
 - **Server is the single deployment** — `ssh luno`, runs as user `nanoclaw` at `/home/nanoclaw/nanoclaw-v2`.
+- **The bot on Telegram** is `@hiluno_bot` — DMs plus the luno group.
 - **Old v1 install** still lives at `/home/nanoclaw/nanoclaw` (untouched, available for rollback).
 - **luno repo mount** — bot reads canonical product docs from `/workspace/extra/luno/` per-group via `container.json` `additionalMounts`. Server has the luno repo cloned at `/home/nanoclaw/luno` via SSH deploy key (`~/.ssh/luno_deploy_key`).
 - **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only).
 - **Whisper.cpp on host** — model at `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin`, binary at `/usr/local/bin/whisper-cli`. `WHISPER_*` env vars in v2's `.env`.
-- **Owner role**: `telegram:496249047` (Jan) is global owner via `user_roles` table.
-- **Service**: systemd user unit `nanoclaw-v2-1e478a5f` (slug = sha1(project_root)[:8]).
+- **Owner role**: the operator's Telegram identity is the global owner, via the `user_roles` table. The concrete id lives in the database, not in this repo.
+- **Service**: systemd user unit `nanoclaw-v2-1e478a5f` (slug = sha1(project_root)[:8]). Runs with `KillMode=process`, so a restart takes down the host process only — agent containers it spawned stay alive on purpose.
 
 ## Routine update from upstream
 
@@ -86,6 +87,34 @@ ssh luno "tail -20 /home/nanoclaw/nanoclaw-v2/logs/nanoclaw.log"
 # Send a Telegram test message — text, voice, photo — confirm responses.
 ```
 
+## Operating the running service
+
+`XDG_RUNTIME_DIR` is not decoration. Invoking nanoclaw's *user* systemd instance as root
+via `su` fails with `Failed to connect to bus: No medium found` unless the variable points
+at the user's runtime directory — hence the prefix on every `systemctl --user` call above.
+
+```bash
+# Status
+ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw -c 'systemctl --user status nanoclaw-v2-1e478a5f --no-pager | head -10'"
+
+# Journal (the app's own logs are the files under logs/, this is the unit's view)
+ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw -c 'journalctl --user -u nanoclaw-v2-1e478a5f -n 50'"
+```
+
+### Making a `container.json` change take effect
+
+`container-runner.ts` calls `readContainerConfig()` at spawn time, so a **new** container
+picks up the edited file and a container that is already up keeps the config it started
+with. Restarting the service does not help: `KillMode=process` deliberately leaves the
+spawned containers running. Stop them, and the next inbound message spawns fresh:
+
+```bash
+ssh luno "docker ps --filter name=nanoclaw-v2 --format '{{.Names}}' | xargs -r docker stop"
+```
+
+Containers run with `--rm`, so their logs are gone once they exit — to debug one, `docker
+exec` into it while it is still alive.
+
 ## Adding a new customization
 
 **If the change is additive** (new files, no upstream-file modifications) — commit straight to `main`. Examples: new container skill, new doc, new asset.
@@ -108,18 +137,63 @@ Always include a `.claude/skills/add-<name>/SKILL.md` documenting:
 - conflict-resolution notes for upstream re-merge
 - prereqs (host setup, env vars)
 
+## Integrations wired per group
+
+Two tools reach outside the container without going through the OneCLI proxy.
+Both are deliberate exceptions, for the same underlying reason: OneCLI injects
+static secrets into HTTP requests it can see, and neither of these fits that.
+
+### GitHub App tool
+
+The bot acts as the `hiluno-bot` GitHub App — it reads the org and opens issues
+under its own bot identity rather than as a person. Wiring:
+
+- The App's **private key never enters the container**. `mintGithubAppToken()` in
+  `src/container-runner.ts` signs a JWT host-side, exchanges it for a 1-hour
+  installation token, and injects only that token as
+  `GITHUB_PERSONAL_ACCESS_TOKEN`. App id and installation id come from `.env`.
+- The agent-runner enables `github/github-mcp-server` (toolsets `repos`, `issues`,
+  `context`) **iff** that variable is present, so an unconfigured install just
+  runs without the tool.
+- Which groups get it is the `GITHUB_ENABLED_GROUPS` set in `container-runner.ts`.
+  The App itself is installed on one repository, so the set can only narrow what
+  the App already permits, never widen it.
+
+Not OneCLI, because App auth is private-key JWT crypto rather than a static
+secret — the same host-side principle as the IMAP rule in `docs/onecli.md`.
+
+### Supabase read-only MCP
+
+`@supabase/mcp-server-supabase` (pinned in `container/Dockerfile`) gives the bot
+read-only queries against the production database. It is wired per group through
+`groups/<folder>/container.json` — server-local, `0600`, never in the repo, which
+is also where its access token sits.
+
+Not OneCLI, because the server authenticates against the Supabase management API
+with its own client that ignores `HTTPS_PROXY` under Node 22, so the gateway
+cannot inject into it.
+
+**Caveat worth remembering:** `--read-only` is enforced by the MCP server, not by
+the token. The token itself is account-wide management API access, so a leak is
+not limited to reading. Treat the `container.json` files as credential files.
+
+The durable domain vocabulary the bot needs for those queries lives in each
+group's `CLAUDE.local.md`; the schema itself is not hardcoded anywhere — the bot
+introspects it live so it cannot drift. The same vocabulary is written up in the
+luno repo under `docs/tech/database.md`, "Domain semantics".
+
 ## Server-side state that's NOT in the repo (recreate on fresh install)
 
 | | Where | Purpose |
 |---|---|---|
 | `~/.ssh/luno_deploy_key`, `~/.ssh/luno_deploy_key.pub`, `~/.ssh/config` (Host `github-luno`) | nanoclaw user | SSH deploy key for the luno repo. Public key registered as deploy key on `lunoapp/luno`. |
-| `~/luno` git clone (`github-luno:lunoapp/luno`) | nanoclaw home | Mounted into containers as `/workspace/extra/luno/`. Refresh manually with `git -C ~/luno pull`. |
+| `~/luno` git clone (`github-luno:lunoapp/luno`) | nanoclaw home | Mounted into containers as `/workspace/extra/luno/`. Kept current by `/etc/cron.d/luno-repo-pull` — daily 04:15, `git pull --ff-only` as `nanoclaw`, logged to syslog under tag `luno-pull`. |
 | `~/.config/nanoclaw/mount-allowlist.json` | nanoclaw config | Allows `/home/nanoclaw/luno` mount. |
-| `~/.local/bin/pnpm`, PATH update in `~/.bashrc` | nanoclaw user-local | pnpm without sudo. Install: `npm config set prefix ~/.local && npm install -g pnpm@<pinned>` plus symlink fix to `~/.local/bin/pnpm`. |
+| `~/.local/bin/pnpm`, PATH update in `~/.bashrc` | nanoclaw user-local | pnpm without sudo. Install: `npm config set prefix ~/.local && npm install -g pnpm@<pinned>`. The first install leaves `.pnpm-XXX` symlinks instead of a `pnpm` one — fix with `ln -sf ~/.local/lib/node_modules/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm`. |
 | `loginctl enable-linger nanoclaw` (as root) | systemd | Keeps user systemd alive without active login. |
 | systemd unit `nanoclaw-v2-1e478a5f` | `~/.config/systemd/user/` | Generated by `pnpm exec tsx setup/index.ts --step service`. |
 | `.env` | project root | Channel tokens, OneCLI config, `WHISPER_*` paths, `GITHUB_APP_*`. |
-| `~/agent-keys/github-app.pem` | nanoclaw home | Optional. Only needed if a GitHub-MCP integration is added later. |
+| `~/agent-keys/github-app.pem` | nanoclaw home | **Required** — the GitHub App private key, `0600`. The host mints installation tokens from it on every spawn (see "Integrations wired per group"). Without it the GitHub tool silently stays off. |
 | Whisper binary + model | `/usr/local/bin/whisper-cli`, `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin` | Built from whisper.cpp source. See `.claude/skills/add-voice-transcription/SKILL.md`. |
 | `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state. Backed up via `~/backups/pre-v2-*` snapshots. |
 | OneCLI agents in `mode=all` | OneCLI vault on server | Each agent group's OneCLI agent record must be `secretMode=all` so matching secrets and app connections auto-inject. Set via root: `onecli agents set-secret-mode --id <agent-id> --mode all`. Look up agent IDs via `onecli agents list`. |
