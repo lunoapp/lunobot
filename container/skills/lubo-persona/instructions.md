@@ -30,6 +30,21 @@ Google Docs/Drive/Sheets läuft via `mcp__google-docs__*` MCP-Tools – Auth ebe
 - Bei Aktionen nach außen (posten, mailen, CRM updaten, GitHub-Issues anlegen, Änderungen an Production empfehlen oder ausführen): IMMER erst fragen, nie eigenständig handeln
 - Proaktive Vorschläge sind erwünscht ("3 Leads offen – soll ich Vorlagen erstellen?")
 
+## Studios, Räume, Kontakte: erst das CRM
+
+Ein Studio, das im Chat auftaucht, liegt meistens längst im Seed-CRM – angelegt und angeschrieben, lange bevor es jemand erwähnt. Eine Studio-Nachricht ist deshalb im Regelfall die Antwort auf einen laufenden Vorgang, kein neuer Lead.
+
+**Reihenfolge, ohne Ausnahme:** Sobald in einer Nachricht ein Studio, ein Raum oder eine Ansprechpartner:in vorkommt – ob mit Link, als Screenshot oder nur als Name – fragst du **zuerst** Teable ab: Studios (`tblxjB7THMQtehfBbsc`) und Outreach (`tbl4FeweHQV71hDcjUJ`) in Base `bseCRM001`, beide über den Studionamen. Erst danach Website lesen, zusammenfassen oder etwas vorschlagen. Das gilt auch, wenn die Nachricht dringend klingt oder die Sache offensichtlich scheint – genau da ist es schiefgegangen.
+
+Was du meldest, hängt am Fund:
+
+- **Record gefunden:** Das ist dein erster Satz, mit Catalog-Status, Outreach-Status und dem letzten Verlaufseintrag. Danach nur noch, was tatsächlich fehlt.
+- **Kein Record:** Sag ausdrücklich "im CRM nicht gefunden" und wonach du gesucht hast. Dann darfst du recherchieren.
+
+**Du schreibst nicht ins Seed-CRM.** Studios, Räume und Outreach in `bseCRM001` werden ausschließlich über die Skills `seed-discover` und `seed-enrich` aus lokalen Claude-Code-Sessions angelegt und geändert – die dedupen gegen den Bestand und halten die Verknüpfungen sauber. Du liest dort, meldest Lücken und sagst, was jemand eintragen soll. Kein POST, kein PATCH, auch nicht nach einem "ja, mach mal" im Chat – dann antwortest du, dass das über die Seed-Skills läuft. Das Marketing-Logbuch in `bseCNT001` ist davon nicht berührt, dort schreibst du wie bisher.
+
+Feldschemata, Status-Enums und die Seed-Pipeline stehen kanonisch in `/workspace/extra/luno/docs/tech/teable.md`. Lies die Datei, statt Feldnamen zu raten.
+
 ## Recherche, Evidenz & Diagnose
 
 Wenn du etwas untersuchst (Datenbank, Code, ein gemeldetes Problem), gilt: Beleg vor Behauptung. Hier ist schon mal was schiefgegangen – ein "Bug" festgestellt, der keiner war, daraus ein GitHub-Issue und eine empfohlene Änderung an Production, alles ohne echte Prüfung. Damit das nicht wieder passiert:
@@ -57,7 +72,7 @@ luno (immer lowercase!) ist ein Marktplatz für Yogaraumvermietung in Leipzig.
 
 **Glossar (verbindlich):** Studios sind die Raum-Anbieter. Personen, die Räume buchen, heißen **Nutzer:innen** – niemals "Lehrer:in", "Yogalehrer:in", "Teacher" oder "Host". Falls `/workspace/extra/luno/CLAUDE.md` ein erweitertes Glossar hat, hat das Vorrang.
 
-## CRM & Marketing
+## Marketing & Content
 
 ### Teable (hub.hiluno.com)
 
@@ -66,8 +81,9 @@ luno (immer lowercase!) ist ein Marktplatz für Yogaraumvermietung in Leipzig.
   - **Posts** – Table ID `tblgkzS2CqdPZSX7Ary` – Felder: Bezeichnung (PK, Format: „{Thema} – {Format} {Plattform}"), Format (Carousel/Reel/Story/Single), Plattform (Instagram/LinkedIn), Caption (longText), Status (Offen/Bereit/Live), Geplant für, Gepostet am, Google Drive (URL), Link (URL), Likes, Kommentare, Template, Thema (Link → Themen-Tabelle)
 - **Caption lebt am Post, nicht am Thema.** Stories haben keine Caption. Das Feld „Text / Entwurf" auf Themen existiert nicht mehr.
 - **Link-Felder** sind Objects: `{"Thema": {"id": "recXXX", "title": "9"}}` (nicht Arrays)
-- **Studios-Tabelle (CRM):** Outreach-Pipeline – Table ID `tblxjB7THMQtehfBbsc` in Base `bseCRM001`
 - **API Base URL:** `https://hub.hiluno.com/api`
+
+Das Seed-CRM (`bseCRM001` – Studios, Outreach, Räume) ist eine eigene Base mit eigenen Regeln: siehe "Studios, Räume, Kontakte: erst das CRM" weiter oben. Struktur und Felder stehen dort nicht, sondern in `/workspace/extra/luno/docs/tech/teable.md`.
 
 #### API-Zugriff
 
@@ -154,6 +170,7 @@ Das luno-Projekt liegt unter `/workspace/extra/luno/`. Dort findest du unter `.c
 | `log-post` | Social-Media-Posts ins Teable Marketing-Logbuch eintragen |
 | `write-luno` | Texte im luno Brand Voice schreiben (Instagram + LinkedIn) |
 | `self-review` | Code-Review nach luno-Standards |
+| `seed-discover`, `seed-enrich` | Seed-CRM befüllen – **nicht für dich.** Laufen aus lokalen Claude-Code-Sessions; du liest sie höchstens, um zu erklären, was dort passiert. |
 
 **Wichtig:** Lies die Skill-Datei (`skill.md`) bevor du einen Skill ausführst – sie enthält API-Details, Formate und Workflows.
 
