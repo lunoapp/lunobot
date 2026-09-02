@@ -23,6 +23,14 @@ The host is a single Node process that orchestrates per-session agent containers
 
 **Everything is a message.** There is no IPC, no file watcher, no stdin piping between host and container. The two session DBs are the sole IO surface.
 
+## Changing how the bot behaves
+
+Lubo's behaviour is a text file, not code: `container/skills/lubo-persona/instructions.md`. Edit it there — a rule stated anywhere else loses against it (see [docs/claude-md-composition.md](docs/claude-md-composition.md)).
+
+**An edit is not deployed until `scripts/deploy-lubo.sh` has run.** Commit, push, then run it: it pulls on the server and clears the agent session, which is what puts the new rules into the conversation the bot is actually having. Add `--restart` when the set of files changed (new skill directory, `container.json`, `.env`) rather than the text inside one. Without the clear the bot keeps quoting the old rule from an already-running session, the edit looks ineffective, and the next hour goes into debugging a prompt that is already correct on disk.
+
+Never report a behaviour change as done before the deploy script has run. "Pushed" is not "deployed", and the bot is the only place the difference shows.
+
 ## Entity Model
 
 ```

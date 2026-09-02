@@ -30,11 +30,24 @@ skill changes the prompt of *all* agent groups.
 
 ## Reload semantics
 
-Fragments are read fresh at spawn, so editing a skill's `instructions.md` or a
-group's `CLAUDE.local.md` needs a `git pull` on the server and nothing else — no
-build, no image rebuild, no service restart. The change reaches a **new** session:
-a resumed session keeps the rules it started with, so `/clear` is what makes an
-edit visible.
+Editing a skill's `instructions.md` or a group's `CLAUDE.local.md` needs a
+`git pull` on the server — no build, no image rebuild, no service restart. The
+composed `CLAUDE.md` imports its fragments as symlinks into the read-only
+`/app/skills` mount, so the pull alone already changes what the next query reads
+from disk.
+
+What the pull does not change is the conversation the agent is in the middle of.
+It keeps answering from the rules that were in context when its session started,
+which is why an edit that is correct on disk still produces the old behaviour in
+chat — the reported symptom is always "I changed it and the bot quotes the old
+rule". `/clear` drops that continuation and is what makes the edit visible.
+
+**Deploy an instruction change with `scripts/deploy-lubo.sh`.** It pulls on the
+server and clears the session in one go; `--restart` adds the container stop that
+only a changed file *set* needs (a new skill directory, `container.json`, `.env`).
+Doing it by hand is three steps and skipping the third is the failure above.
+Clearing costs the current chat context — that is the price of the rule change
+landing, and there is no way to keep both.
 
 ## Style, formatting and language: the persona wins
 

@@ -102,6 +102,14 @@ ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw 
 ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw -c 'journalctl --user -u nanoclaw-v2-1e478a5f -n 50'"
 ```
 
+### Deploying an instruction change (persona, skill text)
+
+`scripts/deploy-lubo.sh` — pulls on the server and clears the agent session, which
+is the step that puts edited rules into the running conversation. `--restart` adds
+the container stop that a changed file *set* needs. Background and the failure mode
+it prevents: [docs/claude-md-composition.md](claude-md-composition.md), "Reload
+semantics".
+
 ### Making a `container.json` change take effect
 
 `container-runner.ts` calls `readContainerConfig()` at spawn time, so a **new** container
