@@ -35,6 +35,7 @@ This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is
 
 - **Server is the single deployment** — `ssh luno`, runs as user `nanoclaw` at `/home/nanoclaw/nanoclaw-v2`.
 - **The bot on Telegram** is `@hiluno_bot` — DMs plus the luno group.
+- **Server pulls over SSH** — `origin` is `git@github-luno:lunoapp/lunobot.git`; the `github-luno` alias in `~/.ssh/config` carries the deploy key. The `nanoclaw` user has no HTTPS credentials, so an `https://` remote makes step 8 below fail with `could not read Username`.
 - **Old v1 install** still lives at `/home/nanoclaw/nanoclaw` (untouched, available for rollback).
 - **luno repo mount** — bot reads canonical product docs from `/workspace/extra/luno/` per-group via `container.json` `additionalMounts`. Server has the luno repo cloned at `/home/nanoclaw/luno` via SSH deploy key (`~/.ssh/luno_deploy_key`).
 - **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only).
