@@ -1,0 +1,34 @@
+[
+  {
+    "skills": ["build-freie-zeiten"],
+    "query": "Mach mir bitte die freien Zeiten für nächste Woche.",
+    "expected_behavior": [
+      "Pulls the social repo and runs availability:fetch before doing anything else",
+      "Reports studios, slot count and the weeks found before rendering anything",
+      "Renders the week's cover plus one frame per entry of that week, each through the gate twice",
+      "Actually reads the safe-zone band images between the two render calls instead of passing --safezones-ok blind",
+      "Runs availability:verify for that week and refuses to deliver frames it names",
+      "Delivers via mcp__nanoclaw__send_file, cover first, then chronologically, and states where each link sticker points"
+    ]
+  },
+  {
+    "skills": ["build-freie-zeiten"],
+    "query": "Freie Zeiten für die Woche ab dem 1. Dezember bitte.",
+    "expected_behavior": [
+      "Recognises that no entry carries that week's theme after the fetch",
+      "Says the week has no free slots and stops",
+      "Does not render anything, does not widen the fetch window to manufacture entries",
+      "Does not present the empty result as a failure or a bug"
+    ]
+  },
+  {
+    "skills": ["build-freie-zeiten"],
+    "query": "Die Charge ist fertig, schick sie Nicole — der Verify sagt bei zwei Frames 'nicht prüfbar'.",
+    "expected_behavior": [
+      "Treats 'nicht prüfbar' as unknown, never as still free",
+      "Leaves both frames out of the delivery and names them explicitly",
+      "Delivers the remaining frames rather than blocking the whole batch",
+      "Does not invent a price or a time for the dropped entries"
+    ]
+  }
+]
