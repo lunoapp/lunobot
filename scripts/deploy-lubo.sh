@@ -18,6 +18,7 @@ set -euo pipefail
 SERVER=luno
 PROJECT=nanoclaw-v2
 AGENT_GROUP=luno
+SOCIAL_REPO=social
 RESTART=0
 [ "${1:-}" = "--restart" ] && RESTART=1
 
@@ -45,6 +46,13 @@ fi
 
 echo "→ pulling on $SERVER"
 ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git pull --ff-only'"
+
+# The social repo is mounted into the luno agent and holds the render pipeline.
+# The container has no SSH key, so it cannot pull for itself — the host does it
+# here, where the deploy key lives. Without this the bot works from whatever
+# state the clone happened to be in.
+echo "→ pulling $SOCIAL_REPO on $SERVER"
+ssh "$SERVER" "su - nanoclaw -c 'cd ~/$SOCIAL_REPO && git pull --ff-only'"
 
 SERVER_HEAD=$(ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git rev-parse HEAD'" | tr -d '\r\n')
 if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then

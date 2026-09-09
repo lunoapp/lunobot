@@ -23,10 +23,11 @@ the source of truth: where the two disagree, the doc wins and this file is wrong
 
 ```bash
 cd /workspace/extra/social
-git pull --ff-only
-[ -d node_modules ] || pnpm install        # only after a fresh clone
 pnpm availability:fetch --city leipzig --lead <days to the target Monday>
 ```
+
+The repo is kept up to date from outside — there is no key in here to pull
+with, and no need: what changes between batches is the data, not the pipeline.
 
 The lead is not optional thinking: its default of seven days cuts the start off
 a week that begins sooner, and what falls out cannot be rendered again.
