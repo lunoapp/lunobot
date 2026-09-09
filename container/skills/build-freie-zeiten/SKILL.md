@@ -11,7 +11,7 @@ description: >
 # Freie Zeiten — the weekly story batch
 
 One batch per calendar week: a typographic cover frame plus one story frame per
-room that has a free slot that week, 1080×1920 at scale 2. Stories, not feed
+room that has a free slot that week, 1080×1920 at scale 1. Stories, not feed
 posts — a concrete time is stale in a week and must not stay in the profile.
 
 The repo is mounted at `/workspace/extra/social`; everything runs there. The
@@ -200,7 +200,7 @@ chat.
 - **Files.** Every frame into the chat, cover first, then the date frames in
   chronological order, then the link. Right for someone who posts from the phone
   and wants the images where the posting happens. Costs one message per frame:
-  `send_file` takes one file, so ten frames are ten messages.
+  `mcp__nanoclaw__send_file` takes one file, so ten frames are ten messages.
 
 Ask once, at the start of the batch, and remember the answer for that person —
 do not ask again every week. If you have no answer yet, send the link and offer
