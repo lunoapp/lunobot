@@ -51,8 +51,15 @@ ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git pull --ff-only'"
 # The container has no SSH key, so it cannot pull for itself — the host does it
 # here, where the deploy key lives. Without this the bot works from whatever
 # state the clone happened to be in.
-echo "→ pulling $SOCIAL_REPO on $SERVER"
-ssh "$SERVER" "su - nanoclaw -c 'cd ~/$SOCIAL_REPO && git pull --ff-only'"
+#
+# Reset, not pull: building a batch overwrites the tracked data file
+# src/data/availability.json, so the clone is dirty after every run the bot
+# makes. `git pull --ff-only` then fails the moment a commit touches that file
+# — which is exactly the deploy that carries the fix for it. The clone is a
+# deploy target, not a workspace: the canonical data comes from the repo, and
+# the bot refetches when it builds. Untracked files (output/) stay.
+echo "→ resetting $SOCIAL_REPO on $SERVER to origin/main"
+ssh "$SERVER" "su - nanoclaw -c 'cd ~/$SOCIAL_REPO && git fetch --quiet origin main && git reset --hard --quiet origin/main'"
 
 SERVER_HEAD=$(ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git rev-parse HEAD'" | tr -d '\r\n')
 if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then
