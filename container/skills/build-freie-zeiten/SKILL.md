@@ -191,10 +191,24 @@ Read the exit code, the same three meanings as in step 4:
 
 ### 6. Deliver
 
-One `mcp__nanoclaw__send_file` per frame, cover first, then the date frames in
-chronological order, followed by the drive link. The accompanying text names the
-week, how many frames, what dropped out and why, and what the person has to
-decide.
+**Two ways, and the person who asked chooses.** Both end in the same place — the
+drive folder is the record either way — they differ only in what arrives in the
+chat.
+
+- **Link.** The cover as a single image, the drive link, and the text. One
+  message. Right for someone who sorts the week on a computer before posting.
+- **Files.** Every frame into the chat, cover first, then the date frames in
+  chronological order, then the link. Right for someone who posts from the phone
+  and wants the images where the posting happens. Costs one message per frame:
+  `send_file` takes one file, so ten frames are ten messages.
+
+Ask once, at the start of the batch, and remember the answer for that person —
+do not ask again every week. If you have no answer yet, send the link and offer
+the files in the same message: „Soll ich dir die Frames nächste Woche einzeln in
+den Chat legen, oder reicht dir der Ordner?"
+
+The accompanying text names the week, how many frames, what dropped out and why,
+and what the person has to decide.
 
 Then the two things the frames cannot carry:
 
