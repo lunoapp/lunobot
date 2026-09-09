@@ -88,9 +88,15 @@ directory it is given, so it has to hold this week and nothing else.
 Two calls per frame:
 
 ```bash
-pnpm run render:still "<id>" output/<Wochenordner>/<id>.png --scale 2
-pnpm run render:still "<id>" output/<Wochenordner>/<id>.png --scale 2 --safezones-ok
+pnpm run render:still "<id>" output/<Wochenordner>/<id>.png --scale 1
+pnpm run render:still "<id>" output/<Wochenordner>/<id>.png --scale 1 --safezones-ok
 ```
+
+**`--scale 1`, never larger.** The composition is 1080 x 1920, which is what
+Instagram wants for a story. Rendering bigger does not make it sharper: Meta
+scales anything wider than 1440 px down itself and compresses it harder than a
+file that arrives at target size, and it refuses anything over 8 MB. Step 5
+rejects frames outside those limits, so a bigger render costs the batch.
 
 **The file name is a contract**, not a label: `<id>-Story.png` for a room and
 `KW<nn>-Cover-Story.png` for the cover. Step 5 matches on it and refuses
@@ -153,9 +159,9 @@ pnpm run availability:publish --theme KW38
 ```
 
 `--dir` defaults to `output/<Wochenordner>`; pass it only to publish from
-somewhere else. **`pnpm run`, never the bare `pnpm <script>` shorthand** —
-the shorthand does not pass flags through and ends up asking npm to install
-them.
+somewhere else. Use `pnpm run <script>`: the bare shorthand works too, but it
+falls through to npm whenever a script name collides with a pnpm command, and
+`pnpm run` never does.
 
 It mirrors the directory into
 `Marketing/Inhalte/<Wochenordner>/Instagram/01-Story/` and prints the folder's
