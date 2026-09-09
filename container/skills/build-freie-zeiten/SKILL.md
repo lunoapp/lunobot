@@ -23,7 +23,7 @@ the source of truth: where the two disagree, the doc wins and this file is wrong
 
 ```bash
 cd /workspace/extra/social
-pnpm availability:fetch --city leipzig --lead <days to the target Monday>
+pnpm run availability:fetch --city leipzig --lead <days to the target Monday>
 ```
 
 The repo is kept up to date from outside — there is no key in here to pull
@@ -32,8 +32,9 @@ with, and no need: what changes between batches is the data, not the pipeline.
 The lead is not optional thinking: its default of seven days cuts the start off
 a week that begins sooner, and what falls out cannot be rendered again.
 
-Then pick the week, render each frame twice through the gate, re-check the slots,
-and `mcp__nanoclaw__send_file` them into the chat. Details below.
+Then pick the week, render each frame twice through the gate, re-check the
+slots, put the week into the team drive, and `mcp__nanoclaw__send_file` the
+frames into the chat. Details below.
 
 ## Workflow
 
@@ -46,7 +47,7 @@ right; building on a Wednesday for the *coming* Monday, seven silently drops
 Monday and Tuesday.
 
 ```bash
-pnpm availability:fetch --city leipzig --lead <days until the target week's Monday>
+pnpm run availability:fetch --city leipzig --lead <days until the target week's Monday>
 ```
 
 **A fetch replaces the whole data stand.** Entries that fall outside the new
@@ -78,12 +79,22 @@ cover (`KW<nn>-Cover-Story`) plus every entry whose `theme` is that week.
 
 ### 3. Render through the gate
 
-Composition id is the entry `id` plus `-Story`. Two calls per frame:
+Composition id is the entry `id` plus `-Story`. **Render into the week's own
+directory**, `output/<Wochenordner>/` — the one named by the entry's `theme`.
+`output/` itself is a scrap heap: the gate writes its safe-zone bands there on
+every call, and earlier batches left their frames behind. Step 5 mirrors the
+directory it is given, so it has to hold this week and nothing else.
+
+Two calls per frame:
 
 ```bash
-pnpm render:still "<id>" output/<id>.png --scale 2
-pnpm render:still "<id>" output/<id>.png --scale 2 --safezones-ok
+pnpm run render:still "<id>" output/<Wochenordner>/<id>.png --scale 2
+pnpm run render:still "<id>" output/<Wochenordner>/<id>.png --scale 2 --safezones-ok
 ```
+
+**The file name is a contract**, not a label: `<id>-Story.png` for a room and
+`KW<nn>-Cover-Story.png` for the cover. Step 5 matches on it and refuses
+anything else.
 
 The first writes the safe-zone bands to `output/safezones/` and stops. **Read the
 band images** — actually look at them — then repeat with `--safezones-ok`. That
@@ -100,7 +111,7 @@ book, a studio can pause a room, and a minimum booking duration can change. Run
 exactly this, with the week you rendered:
 
 ```bash
-pnpm availability:verify --theme KW38
+pnpm run availability:verify --theme KW38
 ```
 
 Read the exit code, not the prose:
@@ -115,16 +126,69 @@ Read the exit code, not the prose:
 situation, and treating it as a pass is the one failure this step exists to
 prevent.
 
+**A frame that drops has to leave the directory.** The check reads the data
+file; it does not touch what step 3 rendered. So delete the PNG yourself:
+
+```bash
+rm output/<Wochenordner>/<id>-Story.png
+```
+
+Skip this and the booked slot is still a file, step 5 uploads it, and the one
+thing this check exists to prevent is what gets posted. Once it is gone, step 5
+sees the frame as missing and asks for `--force` — that question is the
+confirmation that dropping it was deliberate.
+
 **If any frame drops, the cover has to be rendered again.** It carries the times
 of the whole week, so leaving out one story still opens the sequence with the
 time that just fell out. Re-render `KW<nn>-Cover-Story` after the data file
 reflects the drop, or deliver the batch without a cover and say so.
 
-### 5. Deliver
+### 5. Put the week into the team drive
 
-One `mcp__nanoclaw__send_file` per frame, cover first, then the date frames in chronological
-order. The accompanying text names the week, how many frames, and what the person
-has to decide.
+The frames that survived step 4 are already in `output/<Wochenordner>/` from
+step 3, and that directory holds nothing else. Then:
+
+```bash
+pnpm run availability:publish --theme KW38
+```
+
+`--dir` defaults to `output/<Wochenordner>`; pass it only to publish from
+somewhere else. **`pnpm run`, never the bare `pnpm <script>` shorthand** —
+the shorthand does not pass flags through and ends up asking npm to install
+them.
+
+It mirrors the directory into
+`Marketing/Inhalte/<Wochenordner>/Instagram/01-Story/` and prints the folder's
+share link. The folder is the only record that a week ran, so what lies in it is
+exactly what gets posted — nothing beside it.
+
+It refuses to run when the week is not complete — frames missing locally, or
+frames already in the drive that the upload would delete. From outside, that is
+what a half-finished render looks like, and the folder is the record. Read what
+it names: if a frame was genuinely withdrawn in step 4, repeat with `--force`;
+if the render simply is not finished, finish it.
+
+Nothing is deleted outright: a withdrawn frame goes to the drive's trash, and a
+subfolder is never touched at all, `--force` included. A file somebody put into
+the folder by hand cannot be moved from here either — the bot may only touch what
+it uploaded itself. The frames still go up and the link still comes back; the
+script names what it could not clear away, and that one gets taken out in the
+drive.
+
+Read the exit code, the same three meanings as in step 4:
+
+| Exit | Meaning | What you do |
+|---|---|---|
+| 0 | the week is in the drive | pass the link on in step 6 — and if it names something left behind in the drive, pass that on too |
+| 1 | something about the content — read the message | fix what it names, then run again |
+| 2 | the step never ran (drive, gateway, network) | deliver nothing from here, say why, try again later |
+
+### 6. Deliver
+
+One `mcp__nanoclaw__send_file` per frame, cover first, then the date frames in
+chronological order, followed by the drive link. The accompanying text names the
+week, how many frames, what dropped out and why, and what the person has to
+decide.
 
 Then the two things the frames cannot carry:
 
