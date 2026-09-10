@@ -29,6 +29,12 @@ pnpm run availability:fetch --city leipzig --lead <days to the target Monday>
 The repo is kept up to date from outside — there is no key in here to pull
 with, and no need: what changes between batches is the data, not the pipeline.
 
+**It is a deploy target, not a workspace.** Every deploy resets it to what is on
+GitHub, and nothing can be pushed from here. An edit to a tracked file made in
+this container does not survive: it looks like a fix, reports as one, and is
+silently gone at the next deploy. Anything that has to last gets reported, not
+edited.
+
 The lead is not optional thinking: its default of seven days cuts the start off
 a week that begins sooner, and what falls out cannot be rendered again.
 
