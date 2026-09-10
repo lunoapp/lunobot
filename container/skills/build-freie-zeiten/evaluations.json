@@ -8,7 +8,7 @@
       "Renders the week's cover plus one frame per entry of that week, each through the gate twice",
       "Actually reads the safe-zone band images between the two render calls instead of passing --safezones-ok blind",
       "Runs availability:verify for that week and refuses to deliver frames it names",
-      "Delivers via mcp__nanoclaw__send_file, cover first, then chronologically, and states where each link sticker points"
+      "Delivers the cover plus the drive link in one message rather than sending every frame, and states where each link sticker points"
     ]
   },
   {
