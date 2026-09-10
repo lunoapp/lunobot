@@ -105,7 +105,16 @@ if [ "$CLEAR" = "1" ]; then
   ssh "$SERVER" "su - nanoclaw -c 'export PATH=\$HOME/.local/bin:\$PATH && cd ~/$PROJECT && pnpm exec tsx scripts/reload-agent.ts $AGENT_GROUP'"
 fi
 
-echo "Done. The bot answers the next message with the edited instructions."
+# Without a restart or a clear nothing ends the running session, so an edited
+# rule is on disk and not yet in force. Saying "done" there is the very failure
+# this script exists to prevent.
+if [ "$RESTART" = "1" ] || [ "$CLEAR" = "1" ]; then
+  echo "Done. The bot answers the next message with the edited instructions."
+else
+  echo "Done. The files on the server are current — but a session already running"
+  echo "keeps the rules it started with. Add --restart so the next message spawns"
+  echo "a fresh container."
+fi
 if [ "$CLEAR" = "0" ]; then
   echo "The $AGENT_GROUP conversation is untouched. Add --clear when the running"
   echo "thread itself carries the rule you just corrected."

@@ -40,14 +40,21 @@ What the pull does not change is the conversation the agent is in the middle of.
 It keeps answering from the rules that were in context when its session started,
 which is why an edit that is correct on disk still produces the old behaviour in
 chat — the reported symptom is always "I changed it and the bot quotes the old
-rule". `/clear` drops that continuation and is what makes the edit visible.
+rule".
+
+Two things end that continuation, and they cost different amounts. **Stopping the
+container** makes the next message spawn a fresh one, which builds its system
+prompt from the files on disk: the edited rule is then in force, and the
+conversation is kept. **Clearing** additionally drops the transcript, which is
+what it takes when the running thread itself carries the old rule — quoted back,
+already acted on, a habit formed under it. That costs the person in that chat
+their context, and there is no way to keep both.
 
 **Deploy an instruction change with `scripts/deploy-lubo.sh`.** It pulls on the
-server and clears the session in one go; `--restart` adds the container stop that
-only a changed file *set* needs (a new skill directory, `container.json`, `.env`).
-Doing it by hand is three steps and skipping the third is the failure above.
-Clearing costs the current chat context — that is the price of the rule change
-landing, and there is no way to keep both.
+server; `--restart` adds the container stop, which a changed file *set* needs (a
+new skill directory, `container.json`, `.env`) and which is also what puts an
+edited rule in force; `--clear` wipes the conversation and is deliberately not
+the default.
 
 ## Style, formatting and language: the persona wins
 
