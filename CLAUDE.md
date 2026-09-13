@@ -112,11 +112,13 @@ A second tier (direct source-level self-edits via a draft/activate flow) is plan
 
 API keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway. Secrets are injected into per-agent containers at request time — none are passed in env vars or through chat context. The container agent sees this via the `onecli-gateway` container skill (`container/skills/onecli-gateway/SKILL.md`), which teaches it how the proxy works, how to handle auth errors, and to never ask for raw credentials. Host-side wiring: `src/onecli-approvals.ts`, `ensureAgent()` in `container-runner.ts`. Run `onecli --help`.
 
-### Gotcha: auto-created agents start in `selective` secret mode
+### Gotcha: check a new agent's secret mode — it can come up either way
 
-When the host first spawns a session for a new agent group, `container-runner.ts:385` calls `onecli.ensureAgent({ name, identifier })`. The OneCLI `POST /api/agents` endpoint creates the agent in **`selective`** secret mode — meaning **no secrets are assigned to it by default**, even if the secrets exist in the vault and have host patterns that would otherwise match.
+When the host first spawns a session for a new agent group, `container-runner.ts:385` calls `onecli.ensureAgent({ name, identifier })`. **Read back the mode afterwards** (`onecli agents list`) rather than assuming one. Both directions have been seen on this deployment, and they fail in opposite ways.
 
-Symptom: container starts, the proxy + CA cert are wired correctly, but the agent gets `401 Unauthorized` (or similar) from APIs whose credentials *are* in the vault. The credential just isn't in this agent's allow-list.
+`selective` — no secrets assigned, even where host patterns would match. Symptom: the container starts, proxy and CA cert are wired correctly, and the agent gets `401 Unauthorized` from APIs whose credentials *are* in the vault.
+
+`all` — every vault secret with a matching host pattern is injected. Observed when the `prema` agent group was created in September 2026. This is the dangerous one, because nothing fails: a group meant to be separate silently reaches the other groups' production credentials. A new agent group whose whole purpose is separation gets `selective` plus an explicit `set-secrets`, and the separation is then worth verifying by making a request that must fail.
 
 The SDK does not expose `setSecretMode` — the only fix is the CLI (or the web UI at `http://127.0.0.1:10254`).
 
