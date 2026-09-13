@@ -74,10 +74,7 @@ describe('composeGroupClaudeMd skill fragments', () => {
   it('imports only the fragments of skills the group selects', () => {
     writeGroup('g_some', { skills: ['onecli-gateway'] });
     composeGroupClaudeMd({ folder: 'g_some' } as never);
-    expect(composedImports('g_some')).toEqual([
-      '@./.claude-shared.md',
-      '@./.claude-fragments/skill-onecli-gateway.md',
-    ]);
+    expect(composedImports('g_some')).toEqual(['@./.claude-shared.md', '@./.claude-fragments/skill-onecli-gateway.md']);
   });
 
   it('prunes a fragment link once its skill is deselected', () => {
