@@ -50,7 +50,7 @@ what it takes when the running thread itself carries the old rule — quoted bac
 already acted on, a habit formed under it. That costs the person in that chat
 their context, and there is no way to keep both.
 
-**Deploy an instruction change with `scripts/deploy-lubo.sh`.** It pulls on the
+**Deploy an instruction change with `scripts/deploy-lunobot.sh`.** It pulls on the
 server; `--restart` adds the container stop, which a changed file *set* needs (a
 new skill directory, `container.json`, `.env`) and which is also what puts an
 edited rule in force; `--clear` wipes the conversation and is deliberately not
@@ -58,7 +58,7 @@ the default.
 
 ## Style, formatting and language: the persona wins
 
-`container/skills/lubo-persona/instructions.md` is the single source of truth for
+`container/skills/lunobot-persona/instructions.md` is the single source of truth for
 lunobot's language (German unless asked otherwise), German typography, and
 per-channel formatting. Because it is a skill fragment it lands in every group's
 composed `CLAUDE.md`, and in practice it dominates whatever a per-group

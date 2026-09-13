@@ -8,7 +8,7 @@ This document is the canonical guide for keeping the fork in sync with upstream,
 
 | | Where | What | Lives on |
 |---|---|---|---|
-| **Lubo persona** | `container/skills/lubo-persona/instructions.md` | Auto-loaded system-prompt fragment with identity, tone, behavior. Slim — no product facts (those come from luno repo mount). | `main` (additive — no upstream conflict) |
+| **Lunobot persona** | `container/skills/lunobot-persona/instructions.md` | Auto-loaded system-prompt fragment with identity, tone, behavior. Slim — no product facts (those come from luno repo mount). | `main` (additive — no upstream conflict) |
 | **luno marketing skills** | `container/skills/{write-luno,log-post,generate-image}/SKILL.md` | Slash commands for content drafting, Teable logging, Replicate image generation. | `main` (additive) |
 | **Voice transcription** | `src/transcription.ts` + hook in `src/channels/telegram.ts` | Local whisper.cpp on host, transcribes Telegram voice notes pre-router. | Skill branch `skill/voice-transcription` (patches upstream `telegram.ts`) |
 | **Coolify deploy** | `container/Dockerfile` | `LABEL coolify.managed=true` — Coolify is *supposed* to honour this; it doesn't always (see image-self-heal). | Skill branch `skill/coolify-deploy` (patches upstream Dockerfile) |
@@ -104,7 +104,7 @@ ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw 
 
 ### Deploying an instruction change (persona, skill text)
 
-`scripts/deploy-lubo.sh` — pulls on the server and clears the agent session, which
+`scripts/deploy-lunobot.sh` — pulls on the server and clears the agent session, which
 is the step that puts edited rules into the running conversation. `--restart` adds
 the container stop that a changed file *set* needs. Background and the failure mode
 it prevents: [docs/claude-md-composition.md](claude-md-composition.md), "Reload
@@ -244,7 +244,7 @@ Things to verify on each upstream sync, because they touch our customizations or
 - `src/modules/mount-security/index.ts` — mount allowlist schema
 - `container/Dockerfile` — coolify-deploy LABEL line
 - `src/host-core.test.ts`, `src/modules/agent-to-agent/agent-route.test.ts` — drop our type-error patches when upstream fixes them (currently v2.0.44)
-- `groups/global/CLAUDE.md` — v2 deletes this on startup. If upstream changes that behavior, our state will diverge. The Lubo persona doesn't depend on this file (it's at `container/skills/lubo-persona/`).
+- `groups/global/CLAUDE.md` — v2 deletes this on startup. If upstream changes that behavior, our state will diverge. The Lunobot persona doesn't depend on this file (it's at `container/skills/lunobot-persona/`).
 
 ## Backup state on origin
 

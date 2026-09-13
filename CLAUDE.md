@@ -25,9 +25,9 @@ The host is a single Node process that orchestrates per-session agent containers
 
 ## Changing how the bot behaves
 
-Lubo's behaviour is a text file, not code: `container/skills/lubo-persona/instructions.md`. Edit it there — a rule stated anywhere else loses against it (see [docs/claude-md-composition.md](docs/claude-md-composition.md)).
+Lunobot's behaviour is a text file, not code: `container/skills/lunobot-persona/instructions.md`. Edit it there — a rule stated anywhere else loses against it (see [docs/claude-md-composition.md](docs/claude-md-composition.md)).
 
-**An edit is not deployed until `scripts/deploy-lubo.sh` has run.** Commit, push, then run it: it pulls on the server, which is what puts the edited files where the bot reads them. Add `--restart` when the set of files changed (new skill directory, `container.json`, `.env`) rather than the text inside one — a restarted container builds its system prompt from disk, so edited rules are then in force.
+**An edit is not deployed until `scripts/deploy-lunobot.sh` has run.** Commit, push, then run it: it pulls on the server, which is what puts the edited files where the bot reads them. Add `--restart` when the set of files changed (new skill directory, `container.json`, `.env`) rather than the text inside one — a restarted container builds its system prompt from disk, so edited rules are then in force.
 
 `--clear` on top wipes that group's conversation. Reach for it only when the running thread is itself the problem: the old rule quoted back, a wrong answer already given, a habit formed under it. It is not the default, because it costs whoever is in that chat their thread — and for an edited rule a restart already does the job.
 

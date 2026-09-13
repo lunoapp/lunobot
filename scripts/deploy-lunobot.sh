@@ -2,10 +2,10 @@
 #
 # Deploy an instruction change to the running bot, from a workstation.
 #
-#   scripts/deploy-lubo.sh            # persona / skill text edits
-#   scripts/deploy-lubo.sh --restart  # also needed when the set of files changed
+#   scripts/deploy-lunobot.sh            # persona / skill text edits
+#   scripts/deploy-lunobot.sh --restart  # also needed when the set of files changed
 #                                     # (new skill directory, container.json, .env)
-#   scripts/deploy-lubo.sh --clear    # additionally wipe the group's conversation
+#   scripts/deploy-lunobot.sh --clear    # additionally wipe the group's conversation
 #
 # Three steps, and skipping the first is why "I changed it and the bot still
 # says the old thing" keeps happening:
