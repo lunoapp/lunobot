@@ -101,9 +101,11 @@ destination from the runtime system prompt and `path` absolute:
 - `wochenplan-1x1.png` — WhatsApp
 
 Then the text of `social/campaigns/wochenplan/Caption.txt` as its own message,
-exactly the file and nothing else — no note, no separator, no sign-off — so it
-can be copied in one go. Anything else you want to say goes into a separate
-message. Good posting times: Sunday evening or Monday morning, 11–13 or
+inside a fenced code block (three backticks on the line before and after) and
+nothing else — no note, no separator, no sign-off. Telegram renders plain
+paragraphs without their blank lines, and Instagram needs them; a code block
+keeps the text byte for byte and gives Nicole a copy button. Anything else you
+want to say goes into a separate message. Good posting times: Sunday evening or Monday morning, 11–13 or
 17–19 Uhr.
 
 ## 6. Clean up
