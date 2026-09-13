@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { TelegramFormatConverter } from '@chat-adapter/telegram';
+
 import { normalizeTelegramOutbound } from './telegram-normalize.js';
 
 describe('normalizeTelegramOutbound', () => {
@@ -18,6 +20,22 @@ describe('normalizeTelegramOutbound', () => {
     });
     it('leaves a mid-sentence # alone', () => {
       expect(normalizeTelegramOutbound('Issue #648 ist offen')).toBe('Issue #648 ist offen');
+    });
+  });
+
+  describe('hashtag at line start → escaped', () => {
+    it('escapes a line-leading hashtag so no parser reads it as a heading', () => {
+      expect(normalizeTelegramOutbound('Text\n\n#yogaleipzig #hathayoga')).toBe('Text\n\n\\#yogaleipzig #hathayoga');
+    });
+    it('keeps a real heading a heading', () => {
+      expect(normalizeTelegramOutbound('# Titel')).toBe('**Titel**');
+    });
+    it('leaves a hashtag indented as a code block alone', () => {
+      expect(normalizeTelegramOutbound('    #tag')).toBe('    #tag');
+    });
+    it('does not double-escape on the MarkdownV2 path', () => {
+      const out = new TelegramFormatConverter().fromMarkdown(normalizeTelegramOutbound('Text\n\n#yogaleipzig #hathayoga'));
+      expect(out).toBe('Text\n\n\\#yogaleipzig \\#hathayoga');
     });
   });
 
