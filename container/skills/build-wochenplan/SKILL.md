@@ -16,6 +16,11 @@ the Anleitung wins.
 
 ## 1. Get the week
 
+Work out the target week from today's date, not from the last plan: "die
+kommende Woche" on a Sunday is the week starting tomorrow. The last plan is only
+the template for its classes, and its `kw` says nothing about which week comes
+next.
+
 Never invent a class. For each class you need weekday, time, course and place.
 Start from the last plan you built, `/workspace/agent/wochenplan/letzte-woche.json`,
 and ask whether it still holds: "Wie in KW36: Mo 8:30 – 9:30 Hatha Yoga (BGSV)
@@ -86,10 +91,17 @@ Not `render.sh`: it also renders the photo variants, which are not posted.
 bun social/lib/check-safezones.ts Woche-9x16 --props social/campaigns/wochenplan/week-slide.json
 ```
 
-Open `social/safezones/Woche-9x16.f0.png` and look at it. Say in one sentence
-what is inside the tinted bands. Text in a band is cut off on some phones: send
-Nicole that image and ask. This is a judgement, not a pass/fail — do not make it
-alone when text is involved.
+Open `social/safezones/Woche-9x16.f0.png` and look at it yourself. This check
+is yours, not Nicole's.
+
+- **Headline, a class, a time or a place inside a tinted band:** that one is
+  cut off on some phones. Send Nicole the image, name the line, and ask.
+- **Anything else in a band** — the `@premarising` handle, the flower, the
+  background: that is the template, the same every week. Do not mention it and
+  do not ask.
+
+What changes from week to week is the number of classes, so a long week is
+where a question can arise. A normal week delivers without one.
 
 ## 5. Deliver
 
