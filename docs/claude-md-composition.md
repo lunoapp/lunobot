@@ -13,7 +13,7 @@ In the order they are imported:
 | Layer | Source | Scope |
 |---|---|---|
 | Shared base | `container/CLAUDE.md`, mounted RO at `/app/CLAUDE.md` | every group |
-| Skill fragments | `container/skills/<name>/instructions.md` | every group (see caveat) |
+| Skill fragments | `container/skills/<name>/instructions.md` | groups that select the skill (every group on `"skills": "all"`) |
 | Module fragments | `container/agent-runner/src/mcp-tools/<name>.instructions.md` | every group, not toggleable |
 | MCP server fragments | inline `instructions` field in `groups/<folder>/container.json` | that group |
 | Per-group memory | `groups/<folder>/CLAUDE.local.md` | that group — auto-loaded by Claude Code, not imported by the composed file |
@@ -22,11 +22,12 @@ In the order they are imported:
 `CLAUDE.md` next to it is generated; `.claude-fragments/` beside it holds the
 symlinks and is reconciled on each spawn (stale fragments are pruned).
 
-**Caveat:** skill fragments are *not* filtered by the group's `container.json`
-skill selection — `composeGroupClaudeMd()` walks `container/skills/` and includes
-every skill that ships an `instructions.md`, for every group. There is a TODO in
-the code for this. Until it is addressed, adding an `instructions.md` to any
-skill changes the prompt of *all* agent groups.
+Skill fragments follow the group's `container.json` skill selection, the same
+one that decides which skills are mounted. A group on `"skills": "all"` gets
+every skill that ships an `instructions.md`, so adding one to a skill changes the
+prompt of every such group. A group with an explicit list gets only the
+fragments of the skills it names — which is how `telegram_prema` stays out of
+the Lunobot persona.
 
 ## Reload semantics
 
