@@ -34,7 +34,9 @@ describe('normalizeTelegramOutbound', () => {
       expect(normalizeTelegramOutbound('    #tag')).toBe('    #tag');
     });
     it('does not double-escape on the MarkdownV2 path', () => {
-      const out = new TelegramFormatConverter().fromMarkdown(normalizeTelegramOutbound('Text\n\n#yogaleipzig #hathayoga'));
+      const out = new TelegramFormatConverter().fromMarkdown(
+        normalizeTelegramOutbound('Text\n\n#yogaleipzig #hathayoga'),
+      );
       expect(out).toBe('Text\n\n\\#yogaleipzig \\#hathayoga');
     });
   });
