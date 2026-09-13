@@ -89,6 +89,29 @@ Gotcha — auto-created agents start in `selective` mode (no secrets attached). 
 with `set-secret-mode --mode all`. See the root **CLAUDE.md** "auto-created agents
 start in selective secret mode" section for the full writeup.
 
+## Supabase — the token belongs in the vault, not in `container.json`
+
+`mcpServers.supabase.env.SUPABASE_ACCESS_TOKEN` in a group's `container.json`
+reads `onecli-managed`. That is a placeholder, and it stays one: the real token
+is the vault secret `Supabase Access Token`
+(`0873097b-25f0-4237-b34c-5db7eeaf8760`, host pattern `api.supabase.com`,
+injected as `Authorization: Bearer {value}`), and the gateway substitutes it as
+the request leaves the container.
+
+Writing a real `sbp_` value back into that file hands every process in the
+container an account-level credential it can carry off — the MCP server's
+`--read-only` and `--project-ref` flags bind that one process, never the token.
+
+The token is scoped to the `luno-production` project, read-only, and **expires
+on 12 September 2027**. When it lapses the bot answers database questions with a
+permissions error; nothing else depends on it. Renewing means creating a new
+scoped token in the Supabase dashboard and updating the one vault secret —
+`onecli secrets update --id <id> --value <token>`. No container config changes.
+
+The backup pipeline uses a *different* token (`luno-backup-pipeline`), held in
+the Keychain as `LUNO_SUPABASE_ACCESS_TOKEN` and as a GitHub environment secret.
+Rotating one never touches the other.
+
 ## Admin web UI
 
 App connections (Google Apps Framework OAuth, approval rules the CLI can't set)
