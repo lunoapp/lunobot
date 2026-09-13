@@ -33,6 +33,8 @@ Lunobot's behaviour is a text file, not code: `container/skills/lunobot-persona/
 
 Never report a behaviour change as done before the deploy script has run. "Pushed" is not "deployed", and the bot is the only place the difference shows.
 
+The script also updates the clones mounted into containers (`social` reset, `luno` and `premarising` fast-forwarded). Exit 1 with "Not updated on …" means the bot is deployed and a clone is not: fix that clone, and do not re-run with `--clear`, which only costs the chat its thread.
+
 ## Entity Model
 
 ```
@@ -114,7 +116,7 @@ API keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway. 
 
 ### Gotcha: check a new agent's secret mode — it can come up either way
 
-When the host first spawns a session for a new agent group, `container-runner.ts:385` calls `onecli.ensureAgent({ name, identifier })`. **Read back the mode afterwards** (`onecli agents list`) rather than assuming one. Both directions have been seen on this deployment, and they fail in opposite ways.
+When the host first spawns a session for a new agent group, `buildContainerArgs()` in `container-runner.ts` calls `onecli.ensureAgent({ name, identifier })`. **Read back the mode afterwards** (`onecli agents list`) rather than assuming one. Both directions have been seen on this deployment, and they fail in opposite ways.
 
 `selective` — no secrets assigned, even where host patterns would match. Symptom: the container starts, proxy and CA cert are wired correctly, and the agent gets `401 Unauthorized` from APIs whose credentials *are* in the vault.
 
@@ -127,6 +129,7 @@ The SDK does not expose `setSecretMode` — the only fix is the CLI (or the web 
 onecli agents list
 
 # Flip to "all" so every vault secret with a matching host pattern gets injected
+# (never for a group meant to be separate — use set-secrets below instead)
 onecli agents set-secret-mode --id <agent-id> --mode all
 
 # Or, stay selective and assign specific secrets

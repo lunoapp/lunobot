@@ -38,7 +38,7 @@ This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is
 - **Server pulls over SSH** — `origin` is `git@github-luno:lunoapp/lunobot.git`; the `github-luno` alias in `~/.ssh/config` carries the deploy key. The `nanoclaw` user has no HTTPS credentials, so an `https://` remote makes step 8 below fail with `could not read Username`.
 - **Old v1 install** still lives at `/home/nanoclaw/nanoclaw` (untouched, available for rollback).
 - **luno repo mount** — bot reads canonical product docs from `/workspace/extra/luno/` per-group via `container.json` `additionalMounts`. Server has the luno repo cloned at `/home/nanoclaw/luno` via SSH deploy key (`~/.ssh/luno_deploy_key`).
-- **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only).
+- **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only), `/home/nanoclaw/.config/google-docs-mcp` (read-only) and `/home/nanoclaw/social` (read-write). A mount outside it is dropped with a warn-level `Additional mount REJECTED`. The host caches the file for its lifetime and checks mounts only when it creates a container, so an edit needs a service restart and then a container stop (`deploy-lunobot.sh --restart`); either alone is not enough.
 - **Whisper.cpp on host** — model at `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin`, binary at `/usr/local/bin/whisper-cli`. `WHISPER_*` env vars in v2's `.env`.
 - **Owner role**: the operator's Telegram identity is the global owner, via the `user_roles` table. The concrete id lives in the database, not in this repo.
 - **Service**: systemd user unit `nanoclaw-v2-1e478a5f` (slug = sha1(project_root)[:8]). Runs with `KillMode=process`, so a restart takes down the host process only — agent containers it spawned stay alive on purpose.
@@ -104,9 +104,10 @@ ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw 
 
 ### Deploying an instruction change (persona, skill text)
 
-`scripts/deploy-lunobot.sh` — pulls on the server and clears the agent session, which
-is the step that puts edited rules into the running conversation. `--restart` adds
-the container stop that a changed file *set* needs. Background and the failure mode
+`scripts/deploy-lunobot.sh` — pulls on the server, resets `social` and fast-forwards
+`luno` and `premarising`; a clone it cannot update is reported and the script exits 1.
+`--restart` adds the container stop that a changed file *set* needs and that puts
+edited rules in force; `--clear` also wipes the conversation. Background and the failure mode
 it prevents: [docs/claude-md-composition.md](claude-md-composition.md), "Reload
 semantics".
 
@@ -196,8 +197,10 @@ luno repo under `docs/tech/database.md`, "Domain semantics".
 | | Where | Purpose |
 |---|---|---|
 | `~/.ssh/luno_deploy_key`, `~/.ssh/luno_deploy_key.pub`, `~/.ssh/config` (Host `github-luno`) | nanoclaw user | SSH deploy key for the luno repo. Public key registered as deploy key on `lunoapp/luno`. |
-| `~/luno` git clone (`github-luno:lunoapp/luno`) | nanoclaw home | Mounted into containers as `/workspace/extra/luno/`. Kept current by `/etc/cron.d/luno-repo-pull` — daily 04:15, `git pull --ff-only` as `nanoclaw`, logged to syslog under tag `luno-pull`. |
-| `~/.config/nanoclaw/mount-allowlist.json` | nanoclaw config | Allows `/home/nanoclaw/luno` mount. |
+| `~/luno` git clone (`github-luno:lunoapp/luno`) | nanoclaw home | Mounted read-only into `telegram_main` and `telegram_jan` as `/workspace/extra/luno/`. Kept current by `/etc/cron.d/luno-repo-pull` — daily 04:15, `git pull --ff-only` as `nanoclaw`, logged to syslog under tag `luno-pull`. Also fast-forwarded by every `scripts/deploy-lunobot.sh` run. |
+| `~/social` git clone (`github-social:lunoapp/social`), Host `github-social` in `~/.ssh/config` | nanoclaw home | Mounted read-write into `telegram_main` and `telegram_jan` for the render pipeline. Reset to origin/main by every deploy. |
+| `~/premarising` git clone (`git@github-prema:Prema-Rising/premarising.com`), Host `github-prema` in `~/.ssh/config` | nanoclaw home | Declared as a read-write mount in `telegram_prema`'s `container.json`, but not yet in the mount allowlist, so the host drops it. Read-only deploy key on `Prema-Rising/premarising.com`. Fast-forwarded by every deploy, never reset. |
+| `~/.config/nanoclaw/mount-allowlist.json` | nanoclaw config | Roots: `luno` (read-only), `.config/google-docs-mcp` (read-only), `social` (read-write). Cached by the host; an edit needs a service restart plus a container stop. |
 | `~/.local/bin/pnpm`, PATH update in `~/.bashrc` | nanoclaw user-local | pnpm without sudo. Install: `npm config set prefix ~/.local && npm install -g pnpm@<pinned>`. The first install leaves `.pnpm-XXX` symlinks instead of a `pnpm` one — fix with `ln -sf ~/.local/lib/node_modules/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm`. |
 | `loginctl enable-linger nanoclaw` (as root) | systemd | Keeps user systemd alive without active login. |
 | systemd unit `nanoclaw-v2-1e478a5f` | `~/.config/systemd/user/` | Generated by `pnpm exec tsx setup/index.ts --step service`. |
@@ -205,7 +208,7 @@ luno repo under `docs/tech/database.md`, "Domain semantics".
 | `~/agent-keys/github-app.pem` | nanoclaw home | **Required** — the GitHub App private key, `0600`. The host mints installation tokens from it on every spawn (see "Integrations wired per group"). Without it the GitHub tool silently stays off. |
 | Whisper binary + model | `/usr/local/bin/whisper-cli`, `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin` | Built from whisper.cpp source. See `.claude/skills/add-voice-transcription/SKILL.md`. |
 | `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state. Backed up via `~/backups/pre-v2-*` snapshots. |
-| OneCLI agents in `mode=all` | OneCLI vault on server | Each agent group's OneCLI agent record must be `secretMode=all` so matching secrets and app connections auto-inject. Set via root: `onecli agents set-secret-mode --id <agent-id> --mode all`. Look up agent IDs via `onecli agents list`. |
+| OneCLI agent secret modes | OneCLI vault on server | `luno` and `Jan` are `secretMode=all`, so matching secrets and app connections auto-inject. `prema` is `selective` with only the Anthropic secret assigned (`onecli agents set-secrets`), because `all` would hand it the luno production credentials. Set via root: `onecli agents set-secret-mode --id <agent-id> --mode <all\|selective>`. Read back with `onecli agents list`. |
 | OneCLI Apps connected | OneCLI Web UI on server (`127.0.0.1:10254`) | Google Drive / Docs / Sheets connected via Apps Framework as `hallo@hiluno.com` with own developer credentials (GCP OAuth Client, Desktop type). Reach the Web UI from a workstation via SSH tunnel: `ssh -L 10254:127.0.0.1:10254 <host>` then browse `http://localhost:10254`. |
 | Google Docs MCP stubs | `~/.config/google-docs-mcp/token.json` on server (mode 600) | Stub file with `"onecli-managed"` placeholders; gateway swaps real Bearer at request time. See `.claude/skills/add-google-docs-mcp/SKILL.md` for the file shape. |
 | Coolify `docker_cleanup_threshold=85` | coolify-db `server_settings` | 85% gives buffer for normal deploys without notification spam, while `skill/image-self-heal` ensures nanoclaw's agent image self-rebuilds on the next spawn if Coolify's buggy label-check deletes it (~30s once-off latency). SQL: `UPDATE server_settings SET docker_cleanup_threshold=85 WHERE server_id=0;` |

@@ -85,9 +85,10 @@ docs/v1-to-v2-changes.md) is explicit: *"Agents cannot discover real credentials
 the raw secret value."* That guarantee is the whole product; treat any urge to
 extract a raw value as fighting the design.
 
-Gotcha — auto-created agents start in `selective` mode (no secrets attached). Fix
-with `set-secret-mode --mode all`. See the root **CLAUDE.md** "auto-created agents
-start in selective secret mode" section for the full writeup.
+Gotcha — an auto-created agent can come up in `selective` (no secrets, 401s) or in
+`all` (every matching vault secret, silently). Read the mode back with
+`onecli agents list`. See the root **CLAUDE.md** "check a new agent's secret mode"
+section for the full writeup.
 
 ## Supabase — the token belongs in the vault, not in `container.json`
 

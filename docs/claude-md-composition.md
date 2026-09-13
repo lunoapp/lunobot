@@ -54,7 +54,8 @@ their context, and there is no way to keep both.
 server; `--restart` adds the container stop, which a changed file *set* needs (a
 new skill directory, `container.json`, `.env`) and which is also what puts an
 edited rule in force; `--clear` wipes the conversation and is deliberately not
-the default.
+the default. It also updates the clones mounted into containers; exit 1 with
+"Not updated on …" means the bot is deployed and a clone is not.
 
 ## Style, formatting and language: the persona wins
 
@@ -88,4 +89,5 @@ Two rules follow from that:
 |---|---|
 | `luno` (the lunobot the studios talk to) | `telegram_main` |
 | `Jan` | `telegram_jan` |
+| `prema` (Nicole's Prema Rising bot) | `telegram_prema` |
 | `emacs` | `emacs` |
