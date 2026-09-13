@@ -25,7 +25,9 @@ set -euo pipefail
 SERVER=luno
 PROJECT=nanoclaw-v2
 AGENT_GROUP=luno
-SOCIAL_REPO=social
+# Clones the agents work from. Each is mounted into a group's container, and a
+# container has no SSH key — the host pulls them here, where the deploy keys are.
+MOUNTED_REPOS=(social premarising)
 RESTART=0
 CLEAR=0
 for arg in "$@"; do
@@ -61,19 +63,16 @@ fi
 echo "→ pulling on $SERVER"
 ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git pull --ff-only'"
 
-# The social repo is mounted into the luno agent and holds the render pipeline.
-# The container has no SSH key, so it cannot pull for itself — the host does it
-# here, where the deploy key lives. Without this the bot works from whatever
-# state the clone happened to be in.
-#
-# Reset, not pull: building a batch overwrites the tracked data file
-# src/data/availability.json, so the clone is dirty after every run the bot
-# makes. `git pull --ff-only` then fails the moment a commit touches that file
-# — which is exactly the deploy that carries the fix for it. The clone is a
-# deploy target, not a workspace: the canonical data comes from the repo, and
-# the bot refetches when it builds. Untracked files (output/) stay.
-echo "→ resetting $SOCIAL_REPO on $SERVER to origin/main"
-ssh "$SERVER" "su - nanoclaw -c 'cd ~/$SOCIAL_REPO && git fetch --quiet origin main && git reset --hard --quiet origin/main'"
+# Reset, not pull: a run overwrites tracked data files in these clones — the
+# social one rewrites src/data/availability.json on every batch — so the clone
+# is dirty afterwards and `git pull --ff-only` fails on exactly the deploy that
+# carries the fix for it. A clone here is a deploy target, not a workspace: the
+# canonical state comes from the repo, and the agent refetches what it needs.
+# Untracked output stays.
+for repo in "${MOUNTED_REPOS[@]}"; do
+  echo "→ resetting $repo on $SERVER to origin/main"
+  ssh "$SERVER" "su - nanoclaw -c 'cd ~/$repo && git fetch --quiet origin main && git reset --hard --quiet origin/main'"
+done
 
 SERVER_HEAD=$(ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git rev-parse HEAD'" | tr -d '\r\n')
 if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then
