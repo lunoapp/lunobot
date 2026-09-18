@@ -207,12 +207,36 @@ luno repo under `docs/tech/database.md`, "Domain semantics".
 | `.env` | project root | Channel tokens, OneCLI config, `WHISPER_*` paths, `GITHUB_APP_*`. |
 | `~/agent-keys/github-app.pem` | nanoclaw home | **Required** — the GitHub App private key, `0600`. The host mints installation tokens from it on every spawn (see "Integrations wired per group"). Without it the GitHub tool silently stays off. |
 | Whisper binary + model | `/usr/local/bin/whisper-cli`, `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin` | Built from whisper.cpp source. See `.claude/skills/add-voice-transcription/SKILL.md`. |
-| `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state. Backed up via `~/backups/pre-v2-*` snapshots. |
+| `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state: users, roles, channel wiring, per-session history. **Not backed up.** `~/backups/pre-v2-*` is a one-off snapshot from the v2 migration, not a mechanism, and upstream's `/update-nanoclaw` backup is a git tag of the code that never touches this directory. Losing the disk loses the wiring — see "Channel wiring" below for what it takes to rebuild it. |
 | OneCLI agent secret modes | OneCLI vault on server | `luno` and `Jan` are `secretMode=all`, so matching secrets and app connections auto-inject. `prema` is `selective` with only the Anthropic secret assigned (`onecli agents set-secrets`), because `all` would hand it the luno production credentials. Set via root: `onecli agents set-secret-mode --id <agent-id> --mode <all\|selective>`. Read back with `onecli agents list`. |
 | OneCLI Apps connected | OneCLI Web UI on server (`127.0.0.1:10254`) | Google Drive / Docs / Sheets connected via Apps Framework as `hallo@hiluno.com` with own developer credentials (GCP OAuth Client, Desktop type). Reach the Web UI from a workstation via SSH tunnel: `ssh -L 10254:127.0.0.1:10254 <host>` then browse `http://localhost:10254`. |
 | Google Docs MCP stubs | `~/.config/google-docs-mcp/token.json` on server (mode 600) | Stub file with `"onecli-managed"` placeholders; gateway swaps real Bearer at request time. See `.claude/skills/add-google-docs-mcp/SKILL.md` for the file shape. |
 | Coolify `docker_cleanup_threshold=85` | coolify-db `server_settings` | 85% gives buffer for normal deploys without notification spam, while `skill/image-self-heal` ensures nanoclaw's agent image self-rebuilds on the next spawn if Coolify's buggy label-check deletes it (~30s once-off latency). SQL: `UPDATE server_settings SET docker_cleanup_threshold=85 WHERE server_id=0;` |
 | systemd timer `docker-builder-prune.timer` | `/etc/systemd/system/` | Weekly `docker builder prune -af` (Sundays 03:00 UTC) keeps BuildKit cache from accumulating GBs. See server install for unit + timer files. |
+
+### Channel wiring
+
+Which chat reaches which agent, and what makes the bot answer, lives in `messaging_group_agents` in `data/v2.db` — one row per (chat, agent) pair. Nothing in the repo describes it, so it is written out here; `.claude/skills/manage-channels/SKILL.md` is the procedure for changing it.
+
+Four columns decide the behaviour. `engage_mode` is `pattern` (regex in `engage_pattern`, `.` meaning every message), `mention` (platform @-mention only) or `mention-sticky` (mention, then every follow-up while a session for that thread exists). `sender_scope` is `all` or `known`. `ignored_message_policy` says what happens to a message that did not engage: `drop` discards it, `accumulate` stores it as silent context so the agent can see what was said before it was addressed. `session_mode` is `shared` everywhere here.
+
+| Chat (DB `name`) | Channel | Agent | Engage | Sender | Ignored |
+|---|---|---|---|---|---|
+| luno | telegram, group | luno | `pattern` `@hiluno_bot\|[Ll]unobot` | all | accumulate |
+| Jan | telegram, DM | Jan | `pattern` `.` | all | drop |
+| Nicole | telegram, DM | prema | `mention` | all | drop |
+| Prema Test | telegram, group | prema | `pattern` `.` | known | accumulate |
+| emacs | emacs | emacs | `pattern` `.` | all | drop |
+
+The team group is the one deliberate deviation from the defaults: it answers only when addressed by @-mention or by name, and reads everything else silently so that "lunobot, kannst du das übernehmen?" still has the preceding messages as context. A Telegram reply to one of its own messages does not count as a mention — the adapter derives that flag from message entities, not from `reply_to_message`.
+
+Read the current state with the in-tree wrapper, never the `sqlite3` binary (the host setup ships none):
+
+```bash
+ssh luno "su - nanoclaw -c 'cd ~/nanoclaw-v2 && pnpm exec tsx scripts/q.ts data/v2.db \"SELECT id, engage_mode, engage_pattern, sender_scope, ignored_message_policy FROM messaging_group_agents\"'"
+```
+
+An `UPDATE` through the same wrapper takes effect on the next message — the router reads the row per inbound event, so neither a deploy nor a container restart is involved. Platform ids are deliberately absent from the table above: a fresh install re-pairs each chat through `--step pair-telegram`, which mints new ones. What has to be carried across is the behaviour, not the numbers.
 
 ## Rollback
 
