@@ -122,7 +122,7 @@ lead with a corner, a prop basket or a close-up from a class. Say in one sentenc
 what the picture actually shows — „a corner with a mat and a bench", not „a yoga
 room". If a room is unrecognisable as a room, leave the frame out and name it.
 The fix is a different index pinned in `LEAD_PHOTO` in
-`scripts/fetch-availability.ts`, which is a change to the repo, made on a laptop,
+`scripts/lib/lead-photo.ts`, which is a change to the repo, made on a laptop,
 not here. A verdict nobody states is a verdict nobody made.
 
 ### 4. Re-check every slot
