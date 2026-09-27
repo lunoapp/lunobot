@@ -1,5 +1,5 @@
 import { findByName, findByRouting, getAllDestinations, type DestinationEntry } from './destinations.js';
-import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
+import { getPendingMessages, markProcessing, markCompleted, selectBatch, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
@@ -69,28 +69,20 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
   let pollCount = 0;
   while (true) {
     // Skip system messages — they're responses for MCP tools (e.g., ask_user_question)
-    const messages = getPendingMessages().filter((m) => m.kind !== 'system');
+    const pending = getPendingMessages().filter((m) => m.kind !== 'system');
     pollCount++;
 
     // Periodic heartbeat so we know the loop is alive
     if (pollCount % 30 === 0) {
-      log(`Poll heartbeat (${pollCount} iterations, ${messages.length} pending)`);
+      log(`Poll heartbeat (${pollCount} iterations, ${pending.length} pending)`);
     }
 
-    if (messages.length === 0) {
-      await sleep(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    // Accumulate gate: if the batch contains only trigger=0 rows
-    // (context-only, router-stored under ignored_message_policy='accumulate'),
-    // don't wake the agent. Leave them `pending` — they'll ride along the
-    // next time a real trigger=1 message lands via this same getPendingMessages
-    // query. Without this gate, a warm container keeps processing
-    // (and potentially responding to) every accumulate-only batch, defeating
-    // the "store as context, don't engage" contract. Host-side countDueMessages
+    // Accumulate gate: trigger=0 rows (router-stored under
+    // ignored_message_policy='accumulate') stay `pending` until a triggering
+    // message takes them along — see selectBatch. Host-side countDueMessages
     // gates the same way for wake-from-cold (see src/db/session-db.ts).
-    if (!messages.some((m) => m.trigger === 1)) {
+    const messages = selectBatch(pending);
+    if (messages.length === 0) {
       await sleep(POLL_INTERVAL_MS);
       continue;
     }
@@ -304,7 +296,9 @@ async function processQuery(
         // everything. Filtering on thread_id here caused deadlocks when the
         // initial batch and follow-ups had mismatched thread_ids (e.g. a
         // host-generated welcome trigger with null thread vs a Discord DM reply).
-        const newMessages = pending.filter((m) => m.kind !== 'system');
+        // Accumulate gate, same as the outer loop: a push opens a new turn,
+        // so trigger=0 rows alone must not be pushed (see selectBatch).
+        const newMessages = selectBatch(pending.filter((m) => m.kind !== 'system'));
         if (newMessages.length === 0) return;
 
         const newIds = newMessages.map((m) => m.id);

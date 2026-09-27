@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from './db/connection.js';
-import { getPendingMessages, markCompleted } from './db/messages-in.js';
+import { getPendingMessages, markCompleted, selectBatch } from './db/messages-in.js';
 import { getUndeliveredMessages } from './db/messages-out.js';
 import { formatMessages, extractRouting } from './formatter.js';
 import { MockProvider } from './providers/mock.js';
@@ -14,13 +14,18 @@ afterEach(() => {
   closeSessionDb();
 });
 
-function insertMessage(id: string, kind: string, content: object, opts?: { processAfter?: string; trigger?: 0 | 1 }) {
+function insertMessage(
+  id: string,
+  kind: string,
+  content: object,
+  opts?: { processAfter?: string; trigger?: 0 | 1; seq?: number },
+) {
   getInboundDb()
     .prepare(
-      `INSERT INTO messages_in (id, kind, timestamp, status, process_after, trigger, content)
-     VALUES (?, ?, datetime('now'), 'pending', ?, ?, ?)`,
+      `INSERT INTO messages_in (id, seq, kind, timestamp, status, process_after, trigger, content)
+     VALUES (?, ?, ?, datetime('now'), 'pending', ?, ?, ?)`,
     )
-    .run(id, kind, opts?.processAfter ?? null, opts?.trigger ?? 1, JSON.stringify(content));
+    .run(id, opts?.seq ?? null, kind, opts?.processAfter ?? null, opts?.trigger ?? 1, JSON.stringify(content));
 }
 
 describe('formatter', () => {
@@ -99,22 +104,42 @@ describe('accumulate gate (trigger column)', () => {
     expect(byId.m2.trigger).toBe(1);
   });
 
-  it('trigger=0-only batch: gate predicate `some(trigger===1)` is false', () => {
+  it('selectBatch: accumulate-only pending set yields nothing to process', () => {
     insertMessage('m1', 'chat', { sender: 'A', text: 'noise' }, { trigger: 0 });
     insertMessage('m2', 'chat', { sender: 'B', text: 'more noise' }, { trigger: 0 });
-    const messages = getPendingMessages();
-    // This is the exact predicate the poll loop uses to skip accumulate-only
-    // batches — gate should be false, so the loop sleeps without waking the agent.
-    expect(messages.some((m) => m.trigger === 1)).toBe(false);
+    expect(selectBatch(getPendingMessages())).toEqual([]);
   });
 
-  it('mixed batch: gate is true → loop proceeds, accumulated rows ride along', () => {
-    insertMessage('m1', 'chat', { sender: 'A', text: 'earlier chatter' }, { trigger: 0 });
-    insertMessage('m2', 'chat', { sender: 'B', text: 'the real mention' }, { trigger: 1 });
+  it('selectBatch: a triggering chat message carries the accumulated rows along', () => {
+    insertMessage('m1', 'chat', { sender: 'A', text: 'earlier chatter' }, { trigger: 0, seq: 2 });
+    insertMessage('m2', 'chat', { sender: 'B', text: 'the real mention' }, { trigger: 1, seq: 4 });
+    expect(selectBatch(getPendingMessages()).map((m) => m.id)).toEqual(['m1', 'm2']);
+  });
+
+  it('selectBatch: a due task alone leaves the accumulated rows pending', () => {
+    insertMessage('m1', 'chat', { sender: 'A', text: 'chatter' }, { trigger: 0, seq: 2 });
+    insertMessage('t1', 'task', { prompt: 'daily digest' }, { seq: 4 });
+    expect(selectBatch(getPendingMessages()).map((m) => m.id)).toEqual(['t1']);
+  });
+
+  it('getPendingMessages: a due task is not pushed out of the window by accumulated rows', () => {
+    // The task was scheduled long ago, so its seq is older than all chatter.
+    insertMessage('t1', 'task', { prompt: 'daily digest' }, { seq: 2 });
+    for (let i = 0; i < 12; i++) {
+      insertMessage(`c${i}`, 'chat', { sender: 'A', text: `chatter ${i}` }, { trigger: 0, seq: 10 + 2 * i });
+    }
     const messages = getPendingMessages();
-    expect(messages.some((m) => m.trigger === 1)).toBe(true);
-    // Both messages are present for the formatter → agent sees the prior context.
-    expect(messages.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
+    expect(messages.map((m) => m.id)).toContain('t1');
+    expect(messages.filter((m) => m.trigger === 0)).toHaveLength(10);
+    expect(messages.map((m) => m.id)).not.toContain('c0');
+  });
+
+  it('getPendingMessages: accumulated rows not yet due do not take window slots', () => {
+    for (let i = 0; i < 10; i++) {
+      insertMessage(`c${i}`, 'chat', { sender: 'A', text: `chatter ${i}` }, { trigger: 0, seq: 2 + 2 * i });
+    }
+    insertMessage('later', 'chat', { sender: 'A', text: 'retry later' }, { trigger: 0, seq: 100, processAfter: '2999-01-01 00:00:00' });
+    expect(getPendingMessages().filter((m) => m.trigger === 0)).toHaveLength(10);
   });
 
   it('trigger column defaults to 1 for legacy inserts without explicit value', () => {

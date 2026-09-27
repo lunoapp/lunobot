@@ -21,13 +21,24 @@ afterEach(() => {
   closeSessionDb();
 });
 
-function insertMessage(id: string, content: object, opts?: { platformId?: string; channelType?: string; threadId?: string }) {
+function insertMessage(
+  id: string,
+  content: object,
+  opts?: { platformId?: string; channelType?: string; threadId?: string; trigger?: 0 | 1 },
+) {
   getInboundDb()
     .prepare(
-      `INSERT INTO messages_in (id, kind, timestamp, status, platform_id, channel_type, thread_id, content)
-       VALUES (?, 'chat', datetime('now'), 'pending', ?, ?, ?, ?)`,
+      `INSERT INTO messages_in (id, kind, timestamp, status, platform_id, channel_type, thread_id, trigger, content)
+       VALUES (?, 'chat', datetime('now'), 'pending', ?, ?, ?, ?, ?)`,
     )
-    .run(id, opts?.platformId ?? null, opts?.channelType ?? null, opts?.threadId ?? null, JSON.stringify(content));
+    .run(
+      id,
+      opts?.platformId ?? null,
+      opts?.channelType ?? null,
+      opts?.threadId ?? null,
+      opts?.trigger ?? 1,
+      JSON.stringify(content),
+    );
 }
 
 describe('poll loop integration', () => {
@@ -263,6 +274,36 @@ describe('poll loop integration', () => {
 
     const out = getUndeliveredMessages();
     expect(out.length).toBeGreaterThanOrEqual(1);
+
+    await loopPromise.catch(() => {});
+  });
+
+  it('leaves accumulate-only follow-ups pending while a query is active', async () => {
+    // Loops from earlier tests are never stopped and poll the same session
+    // DB, so assert on the DB state rather than on this provider's prompts.
+    const acked = () =>
+      (getOutboundDb().prepare('SELECT message_id FROM processing_ack').all() as Array<{ message_id: string }>).map(
+        (r) => r.message_id,
+      );
+    const provider = new MockProvider({}, () => '<message to="discord-test">ok</message>');
+    const controller = new AbortController();
+    const loopPromise = runPollLoopWithTimeout(provider, controller.signal, 5000);
+
+    insertMessage('m1', { sender: 'Alice', text: 'hey bot' });
+    await waitFor(() => acked().includes('m1'), 2000);
+
+    // Chatter between humans while the query is still open: stored as
+    // context, must not start a new turn.
+    insertMessage('m2', { sender: 'Bob', text: 'chatter between humans' }, { trigger: 0 });
+    await sleep(1500);
+    expect(acked()).not.toContain('m2');
+
+    // The next real trigger carries the accumulated chatter along.
+    insertMessage('m3', { sender: 'Alice', text: 'bot again' });
+    await waitFor(() => acked().includes('m3'), 2000);
+    controller.abort();
+
+    expect(acked()).toContain('m2');
 
     await loopPromise.catch(() => {});
   });

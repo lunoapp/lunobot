@@ -43,11 +43,13 @@ function getMaxMessagesPerPrompt(): number {
  * Reads from inbound.db (read-only), filters against processing_ack in outbound.db
  * to skip messages already picked up by this or a previous container run.
  *
- * Returns the most recent `MAX_MESSAGES_PER_PROMPT` pending rows in
- * chronological order, regardless of their `trigger` flag: accumulated
- * context (trigger=0) rides along with the wake-eligible rows so the agent
- * sees the prior context it missed. Host's countDueMessages gates waking on
- * trigger=1 separately (see src/db/session-db.ts).
+ * Returns every pending trigger=1 row plus the most recent
+ * `MAX_MESSAGES_PER_PROMPT` trigger=0 rows, in chronological order. The cap
+ * applies to accumulated context only: a task gets its seq when it is
+ * scheduled, so a window over all rows would let newer chatter hide a task
+ * that has since fallen due. Which rows reach the agent is `selectBatch`'s
+ * decision. Host's countDueMessages gates waking on trigger=1 separately
+ * (see src/db/session-db.ts).
  */
 export function getPendingMessages(): MessageInRow[] {
   const inbound = openInboundDb();
@@ -59,8 +61,14 @@ export function getPendingMessages(): MessageInRow[] {
         `SELECT * FROM messages_in
          WHERE status = 'pending'
            AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))
-         ORDER BY seq DESC
-         LIMIT ?`,
+           AND (trigger = 1 OR id IN (
+             SELECT id FROM messages_in
+             WHERE status = 'pending' AND trigger = 0
+               AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))
+             ORDER BY seq DESC
+             LIMIT ?
+           ))
+         ORDER BY seq DESC`,
       )
       .all(getMaxMessagesPerPrompt()) as MessageInRow[];
 
@@ -79,6 +87,22 @@ export function getPendingMessages(): MessageInRow[] {
   } finally {
     inbound.close();
   }
+}
+
+/**
+ * Pick the rows a turn processes from a pending set.
+ *
+ * Accumulated rows (trigger=0) are chatter the router did not engage on, so
+ * they never open a turn by themselves. They ride along only with a
+ * triggering conversational message, where they are the context for it. A
+ * due task alone takes only the triggered rows: its turn is not a reply to
+ * the chat, and chatter consumed there would be answered out of context and
+ * missing from the next real engagement.
+ */
+export function selectBatch(pending: MessageInRow[]): MessageInRow[] {
+  const triggered = pending.filter((m) => m.trigger === 1);
+  if (triggered.length === 0) return [];
+  return triggered.some((m) => m.kind !== 'task') ? pending : triggered;
 }
 
 /** Mark messages as processing — writes to processing_ack in outbound.db. */
