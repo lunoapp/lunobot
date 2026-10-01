@@ -2,7 +2,7 @@
 name: build-freie-zeiten
 description: >
   Builds the weekly "Freie Zeiten" Instagram story batch for luno: fetches the
-  free, bookable slots from hiluno.com, renders one story frame per room plus the
+  free, bookable slots from hiluno.com, renders one story frame per studio plus the
   week's cover, re-checks every slot against the live API, and delivers the frames
   into the chat. Use when someone asks for the free times of a week — "freie
   Zeiten", "Story für nächste Woche", "Wochencharge", "/freie-zeiten".
@@ -11,7 +11,8 @@ description: >
 # Freie Zeiten — the weekly story batch
 
 One batch per calendar week: a typographic cover frame plus one story frame per
-room that has a free slot that week, 1080×1920 at scale 1. Stories, not feed
+studio that has a free slot that week — one room per studio, the fetch picks it —
+1080×1920 at scale 1. Stories, not feed
 posts — a concrete time is stale in a week and must not stay in the profile.
 
 The repo is mounted at `/workspace/extra/social`; everything runs there. The
@@ -58,9 +59,7 @@ pnpm run availability:fetch --city leipzig --lead <days until the target week's 
 
 **A fetch replaces the whole data stand.** Entries that fall outside the new
 window lose their composition and cannot be rendered again — a later fetch will
-not bring them back, because their day is by then even closer. The photo
-rotation moves with it too, so a re-render after a fetch shows different
-pictures than the asset already exported.
+not bring them back, because their day is by then even closer.
 
 Two rules follow, and neither is negotiable:
 
@@ -231,9 +230,9 @@ Then the two things the frames cannot carry:
 
 - **Never invent a price.** A room without a published price says „Preis auf
   Anfrage". Correct, not a gap.
-- **Never drop a room to make the batch prettier.** Every free room appears —
-  that is the value the studios are listed for. A room without a free slot is
-  simply absent.
+- **Never drop a studio to make the batch prettier.** Every free studio appears
+  — that is the value the studios are listed for. A studio with several rooms
+  appears with one of them, and a studio without a free slot is simply absent.
 - **Never stretch a window past `blockLabel`**, which is how long the room is
   actually free. `timeLabel` is what is advertised. Shortening is fine, stretching
   is a false offer.
