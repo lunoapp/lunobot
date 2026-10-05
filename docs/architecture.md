@@ -817,7 +817,7 @@ Agent-runner strips routing fields (`platform_id`, `channel_type`, `thread_id`) 
 
 - **`chat`** — format into `<messages>` XML block
 - **`chat-sdk`** — extract text, author, attachments from serialized message; format into `<messages>` XML
-- **`task`** — format as `[SCHEDULED TASK]` prefix + prompt. Run pre-script if present.
+- **`task`** — format as a `<task time="…" current_time="…">` element (scheduled time plus actual run time, see `agent-runner-details.md`). Run pre-script if present.
 - **`webhook`** — format as `[WEBHOOK: source/event]` + JSON payload
 - **`system`** — host action results (e.g., "register_group succeeded"). Format as system context, not chat.
 
