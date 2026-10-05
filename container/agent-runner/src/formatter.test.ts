@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { initTestSessionDb, closeSessionDb, getInboundDb } from './db/connection.js';
 import { getPendingMessages } from './db/messages-in.js';
 import { formatMessages, stripInternalTags } from './formatter.js';
-import { TIMEZONE } from './timezone.js';
+import { TIMEZONE, formatLocalTime } from './timezone.js';
 
 beforeEach(() => {
   initTestSessionDb();
@@ -28,15 +28,15 @@ function insertMessage(
   id: string,
   kind: string,
   content: object,
-  opts?: { timestamp?: string },
+  opts?: { timestamp?: string; processAfter?: string },
 ) {
   const timestamp = opts?.timestamp ?? new Date().toISOString();
   getInboundDb()
     .prepare(
-      `INSERT INTO messages_in (id, kind, timestamp, status, content)
-       VALUES (?, ?, ?, 'pending', ?)`,
+      `INSERT INTO messages_in (id, kind, timestamp, status, process_after, content)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
     )
-    .run(id, kind, timestamp, JSON.stringify(content));
+    .run(id, kind, timestamp, opts?.processAfter ?? null, JSON.stringify(content));
 }
 
 describe('context timezone header', () => {
@@ -77,6 +77,38 @@ describe('timestamp formatting', () => {
     insertMessage('m1', 'chat', { sender: 'Alice', text: 'hi' }, { timestamp: '2026-06-15T15:30:00.000Z' });
     const result = formatMessages(getPendingMessages());
     expect(result).toMatch(/(AM|PM)/);
+  });
+});
+
+describe('task timestamps', () => {
+  it('falls back to creation time for rows without process_after', () => {
+    insertMessage('t1', 'task', { prompt: 'do the thing' }, { timestamp: '2026-01-05T12:00:00.000Z' });
+    const result = formatMessages(getPendingMessages());
+    expect(result).toContain(`time="${formatLocalTime('2026-01-05T12:00:00.000Z', TIMEZONE)}"`);
+  });
+
+  // A recurring task's next occurrence is inserted when the previous one
+  // completes, so its creation time is a day early. "Today" in the prompt
+  // must come from the run, not from that row.
+  it('renders the scheduled time plus the current run time', () => {
+    const created = '2026-01-04T12:00:00.000Z';
+    const scheduled = '2026-01-05T12:00:00.000Z';
+    insertMessage('t1', 'task', { prompt: "prepare today's brief" }, { timestamp: created, processAfter: scheduled });
+
+    const result = formatMessages(getPendingMessages());
+
+    expect(result).toContain(`time="${formatLocalTime(scheduled, TIMEZONE)}"`);
+    expect(result).not.toContain(`time="${formatLocalTime(created, TIMEZONE)}"`);
+    expect(result).toMatch(/current_time="(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), [^"]+"/);
+  });
+
+  // The host's retry path writes process_after with SQLite's datetime('now'),
+  // which is UTC without a zone marker. Read naively it shifts by the
+  // container's UTC offset; this only fails when run with a non-UTC TZ.
+  it('reads a zone-less SQLite process_after as UTC', () => {
+    insertMessage('t1', 'task', { prompt: 'retry' }, { processAfter: '2026-01-05 12:00:00' });
+    const result = formatMessages(getPendingMessages());
+    expect(result).toContain(`time="${formatLocalTime('2026-01-05T12:00:00.000Z', TIMEZONE)}"`);
   });
 });
 

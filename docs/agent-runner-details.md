@@ -374,16 +374,22 @@ The agent-runner transforms messages_in rows into a prompt string. The provider 
   ```
   Attachments are listed inline. Images/PDFs that Claude handles natively are passed as content blocks (see Media Handling below).
 
-- **`task`** — task prompt, optionally with script output:
-  ```
-  [SCHEDULED TASK]
-
-  Script output:
+- **`task`** — a `<task>` element, script output first when present:
+  ```xml
+  <task from="luno" time="Oct 5, 2026, 9:00 AM" current_time="Monday, October 5, 2026 at 9:01 AM">Script output:
   {"data": ...}
 
   Instructions:
-  Review open PRs
+  Review open PRs</task>
   ```
+
+  `time` is the occurrence's scheduled time (`process_after`, falling back to the
+  creation timestamp for rows without one; after a host retry it is the retry
+  time). Zone-less SQLite values are read as UTC. `current_time` is generated when the
+  task reaches the agent. Never render the creation timestamp alone: the next
+  occurrence of a recurring task is inserted when the previous one completes, so
+  it carries the previous day's date, and an agent that reads it as "now" reports
+  every relative window ("since yesterday") one day late.
 
 - **`webhook`** — webhook payload:
   ```

@@ -196,16 +196,30 @@ function originAttr(msg: MessageInRow): string {
   return '';
 }
 
+/**
+ * SQLite's datetime('now') is UTC without a zone marker, and the host writes it
+ * into timestamp and, on retry, process_after. new Date() would read it as
+ * container-local time. Same rule as parseSqliteUtc in src/host-sweep.ts.
+ */
+function asUtcIso(s: string): string {
+  return /[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : s.replace(' ', 'T') + 'Z';
+}
+
 function formatTaskMessage(msg: MessageInRow): string {
   const content = parseContent(msg.content);
   const from = originAttr(msg);
-  const time = formatLocalTime(msg.timestamp, TIMEZONE);
+  const time = formatLocalTime(asUtcIso(msg.process_after ?? msg.timestamp), TIMEZONE);
+  const currentTime = new Date().toLocaleString('en-US', {
+    timeZone: TIMEZONE,
+    dateStyle: 'full',
+    timeStyle: 'short',
+  });
   const parts: string[] = [];
   if (content.scriptOutput) {
     parts.push('Script output:', JSON.stringify(content.scriptOutput, null, 2), '');
   }
   parts.push('Instructions:', content.prompt || '');
-  return `<task${from} time="${escapeXml(time)}">${parts.join('\n')}</task>`;
+  return `<task${from} time="${escapeXml(time)}" current_time="${escapeXml(currentTime)}">${parts.join('\n')}</task>`;
 }
 
 function formatWebhookMessage(msg: MessageInRow): string {
