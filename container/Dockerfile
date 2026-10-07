@@ -36,14 +36,17 @@ ARG INSTALL_CJK_FONTS=false
 ARG BUN_VERSION=1.4.0
 # skill/google-docs-mcp — pin Google Docs MCP server (used by the bot when SERVICE_ACCOUNT_PATH is set)
 ARG GOOGLE_DOCS_MCP_VERSION=1.10.0
-# GitHub's official MCP server (Go binary) — enabled per-group when the host
-# injects GITHUB_PERSONAL_ACCESS_TOKEN (minted from the GitHub App). Pin exact.
+# GitHub's official MCP server (Go binary) — started by the runner when the host
+# leaves a GitHub App token file for the session (GITHUB_TOKEN_FILE). Pin exact;
+# the per-arch SHA256 values come from the release's checksums.txt and change
+# with the version.
 ARG GITHUB_MCP_VERSION=1.4.0
-# Supabase MCP server — wired per-group via container.json (read-only DB access).
-# Authenticated with a read-only, single-project PAT in SUPABASE_ACCESS_TOKEN
-# (set in the group's container.json, server-local). The server uses
-# openapi-fetch and calls api.supabase.com directly — same env-var token model
-# as the GitHub MCP here, not the OneCLI proxy path.
+ARG GITHUB_MCP_SHA256_AMD64=cd4da1aba408f9675db2762e0a08d58a3db96d604fa9f92353491fa353f9beb9
+ARG GITHUB_MCP_SHA256_ARM64=350a12e126df469f39f29136cb79a0947f2cc7eda0efe27cb93be5da2a41b32c
+# Supabase MCP server — wired per group as an MCP server in the group's container
+# config (read-only DB access). Authenticated with SUPABASE_ACCESS_TOKEN in that
+# server's env. It calls api.supabase.com directly with openapi-fetch, not
+# through the OneCLI proxy.
 ARG SUPABASE_MCP_VERSION=0.8.2
 
 # ---- System dependencies -----------------------------------------------------
@@ -147,17 +150,27 @@ RUN --mount=type=cache,target=/root/.cache/pnpm \
 
 # Supabase MCP server (read-only DB access). Installed via pnpm to respect the
 # supply-chain policy. Invoked by its bin name `mcp-server-supabase` from the
-# group's container.json; reads the PAT from SUPABASE_ACCESS_TOKEN.
+# group's container config; reads the PAT from SUPABASE_ACCESS_TOKEN.
 RUN --mount=type=cache,target=/root/.cache/pnpm \
     pnpm install -g "@supabase/mcp-server-supabase@${SUPABASE_MCP_VERSION}"
 
 # GitHub MCP server — official Go binary from github/github-mcp-server releases.
 # Trusts the OneCLI MITM CA via SSL_CERT_FILE (Go honors it) when routed through
 # the gateway proxy; falls back to direct TLS otherwise.
-RUN curl -fsSL "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_VERSION}/github-mcp-server_Linux_x86_64.tar.gz" \
-      | tar -xz -C /usr/local/bin github-mcp-server \
-    && chmod +x /usr/local/bin/github-mcp-server \
-    && /usr/local/bin/github-mcp-server --version
+ARG TARGETARCH
+RUN set -eu; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) asset=Linux_x86_64; sha="${GITHUB_MCP_SHA256_AMD64}" ;; \
+      arm64) asset=Linux_arm64; sha="${GITHUB_MCP_SHA256_ARM64}" ;; \
+      *) echo "github-mcp-server: no pinned build for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/github-mcp-server.tar.gz \
+      "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_VERSION}/github-mcp-server_${asset}.tar.gz"; \
+    echo "${sha}  /tmp/github-mcp-server.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/github-mcp-server.tar.gz -C /usr/local/bin github-mcp-server; \
+    rm /tmp/github-mcp-server.tar.gz; \
+    chmod +x /usr/local/bin/github-mcp-server; \
+    /usr/local/bin/github-mcp-server --version
 
 # ---- Entrypoint --------------------------------------------------------------
 COPY entrypoint.sh /app/entrypoint.sh
