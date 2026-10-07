@@ -59,6 +59,8 @@ done
 
 TAG="${1:-latest}"
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
+# Where a local build lands until the tool-surface check passes (see below).
+STAGING_IMAGE="${IMAGE_NAME}:${TAG}-candidate"
 
 # No explicit subcommand, on an install that pulls its image. Skills that add a
 # runtime dependency land here — they append to cli-tools.json (or edit the
@@ -211,16 +213,32 @@ elif [ "$OVERLAY" = "true" ]; then
         echo "LABEL dev.nanoclaw.unhardened-additions=\"cli-tools.json\""
     } > "$OVERLAY_DOCKERFILE"
 
-    build_image -f "$OVERLAY_DOCKERFILE" -t "${IMAGE_NAME}:${TAG}" .
+    build_image -f "$OVERLAY_DOCKERFILE" -t "${STAGING_IMAGE}" .
 else
     echo "Building NanoClaw agent container image..."
     echo "Image: ${IMAGE_NAME}:${TAG}"
 
-    build_image "${BUILD_ARGS[@]}" -t "${IMAGE_NAME}:${TAG}" .
+    build_image "${BUILD_ARGS[@]}" -t "${STAGING_IMAGE}" .
 fi
 
+# Local builds land on a staging tag and become the production tag only after
+# the tool-surface check passes: a running host spawns from the production tag,
+# so a drifted image must never be live, not even between build and check. A
+# pull has no staging step — pull.sh writes the tag itself — so it is checked
+# in place.
 echo ""
-"$SCRIPT_DIR/check-tool-surface.sh" "${IMAGE_NAME}:${TAG}"
+if [ "$PULL" = "true" ]; then
+    "$SCRIPT_DIR/check-tool-surface.sh" "${IMAGE_NAME}:${TAG}"
+else
+    if ! "$SCRIPT_DIR/check-tool-surface.sh" "${STAGING_IMAGE}"; then
+        echo "" >&2
+        echo "Not promoted: ${IMAGE_NAME}:${TAG} still points at the previous image." >&2
+        echo "The rejected build stays as ${STAGING_IMAGE} for inspection." >&2
+        exit 1
+    fi
+    "${CONTAINER_RUNTIME}" tag "${STAGING_IMAGE}" "${IMAGE_NAME}:${TAG}"
+    "${CONTAINER_RUNTIME}" rmi "${STAGING_IMAGE}" >/dev/null
+fi
 
 echo ""
 if [ "$PULL" = "true" ]; then

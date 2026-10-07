@@ -55,8 +55,12 @@ describe('sdk tool-surface drift guard', () => {
     expect(baseline.sdkVersion).toBe(installedSdkVersion);
   });
 
-  it('allowedTools has no surface effect: the stable cores match', () => {
-    expect([...baseline.tools].sort()).toEqual([...baseline.toolsBare].sort());
+  // The allowlist may add tools to the surface (it does on CLI 2.1.280), but a
+  // tool present without it and missing with it would mean the allowlist hides
+  // something the agent then cannot reach.
+  it('the bare surface adds nothing the allowlist mode lacks', () => {
+    const withAllowlist = new Set(baseline.tools);
+    expect(baseline.toolsBare.filter((t) => !withAllowlist.has(t))).toEqual([]);
   });
 
   it('every allowlist entry names a real tool on this surface', () => {
@@ -75,5 +79,9 @@ describe('sdk tool-surface drift guard', () => {
 
   it('tool deferral stays off — ToolSearch must not appear on the surface', () => {
     expect(baselineTools.has('ToolSearch')).toBe(false);
+  });
+
+  it('the deferral control proves the ToolSearch guard can see deferral', () => {
+    expect(baseline.toolsDeferralControl).toContain('ToolSearch');
   });
 });

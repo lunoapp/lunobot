@@ -31,11 +31,14 @@
  *     — a diagnostic of which disallow behavior this regen observed (no test
  *     asserts stripping; a fixed assertion on a nondeterministic mechanism
  *     would be a coin-flip).
- * The drift test asserts tools === toolsBare on the STABLE cores: no allowlist
- * effect has ever been observed there, so the list is permission-layer only
- * (moot under bypassPermissions). If a CLI/SDK bump makes the allowlist shape
- * the surface, the stable cores diverge across every round by construction
- * and the assertion fails deterministically instead of flaking.
+ * The allowlist shapes the surface: on CLI 2.1.280, Glob, Grep and the Task*
+ * tools appear only when allowedTools names them. `tools` (allowlist mode) is
+ * therefore what the agent gets; `toolsBare` stays recorded to make that
+ * effect visible. The drift test asserts the bare surface adds nothing the
+ * allowlist mode lacks.
+ *
+ * Each capture talks to its own URL prefix, so a previous query's late
+ * retries cannot be mistaken for this capture's request.
  *
  * Agent-teams is enabled via a temp settings.json (wire-verified: settings
  * env strictly beats SDK options env).
@@ -51,8 +54,13 @@ import fs from 'fs';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
-import { TOOL_ALLOWLIST } from './claude.js';
+import { CLAUDE_ENV_DEFAULTS, TOOL_ALLOWLIST } from './claude.js';
 
+// Each capture talks to its own path prefix (/c<n>/v1/messages). A query keeps
+// retrying after the 401 while the next capture is already running, and
+// without the prefix those late requests landed in the next capture's list —
+// where "pick the largest body" could select a request of another mode.
+let captureId = 0;
 let requests: string[] = [];
 let captured: (() => void) | null = null;
 
@@ -62,7 +70,7 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const body = await req.text();
-    if (url.pathname.includes('/messages')) {
+    if (url.pathname.startsWith(`/c${captureId}/`) && url.pathname.includes('/messages')) {
       requests.push(body);
       captured?.();
     }
@@ -89,8 +97,22 @@ fs.writeFileSync(
  */
 export const DISALLOW_PROBE = 'Workflow';
 
+/**
+ * Forces tool deferral on for the control capture. The production env
+ * (CLAUDE_ENV_DEFAULTS) turns it off; the control proves that a capture under
+ * deferral really shows `ToolSearch`, so its absence from the production
+ * capture means something. Measured on CLI 2.1.280: `true` and `1` do not
+ * force deferral at this tool count, `auto:0` (threshold zero) does.
+ */
+const DEFERRAL_ON = { ENABLE_TOOL_SEARCH: 'auto:0' };
+
 /** Run one capture and return the sorted wire tool names. */
-async function capture(opts?: { allowedTools?: string[]; disallowedTools?: string[] }): Promise<string[]> {
+async function capture(opts?: {
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  env?: Record<string, string>;
+}): Promise<string[]> {
+  captureId += 1;
   requests = [];
   const firstRequest = new Promise<void>((resolve) => {
     captured = resolve;
@@ -103,8 +125,11 @@ async function capture(opts?: { allowedTools?: string[]; disallowedTools?: strin
       systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const },
       env: {
         ...process.env,
+        // The runner's own env, so the capture shows the surface the agent gets.
+        ...CLAUDE_ENV_DEFAULTS,
+        ...(opts?.env ?? {}),
         HOME,
-        ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`,
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}/c${captureId}`,
         ANTHROPIC_API_KEY: 'fixture-dummy-key',
         ANTHROPIC_AUTH_TOKEN: undefined,
       },
@@ -144,6 +169,7 @@ for (let i = 0; i < ROUNDS; i++) {
   bareRuns.push(await capture());
 }
 const toolsDisallowProbe = await capture({ disallowedTools: [DISALLOW_PROBE] });
+const toolsDeferralControl = await capture({ env: DEFERRAL_ON });
 
 const stable = (runs: string[][]): string[] => runs[0].filter((t) => runs.every((r) => r.includes(t))).sort();
 const union = (runs: string[][]): Set<string> => new Set(runs.flat());
@@ -167,13 +193,14 @@ console.log(
       cliVersion,
       sdkVersion,
       capturedAt: new Date().toISOString(),
-      capture: `wire names; stable cores over ${ROUNDS} interleaved rounds per mode (tools=production allowlist, toolsBare=no allowedTools); variantTools=flicker set; toolsDisallowProbe=single capture with disallowedTools:[probe]; teams on`,
+      capture: `wire names; stable cores over ${ROUNDS} interleaved rounds per mode (tools=production allowlist, toolsBare=no allowedTools); variantTools=flicker set; toolsDisallowProbe=single capture with disallowedTools:[probe]; toolsDeferralControl=single capture with deferral forced on; all under CLAUDE_ENV_DEFAULTS; teams on`,
       rounds: ROUNDS,
       disallowProbe: DISALLOW_PROBE,
       tools,
       toolsBare,
       variantTools,
       toolsDisallowProbe,
+      toolsDeferralControl,
     },
     null,
     2,
