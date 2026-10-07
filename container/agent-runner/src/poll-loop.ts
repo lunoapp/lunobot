@@ -32,9 +32,21 @@ import { stripHarnessTagArtifacts } from './harness-tag-strip.js';
 import { isUploadTraceCommand, uploadTrace } from './upload-trace.js';
 import type { AgentProvider, AgentQuery, ProviderEvent, ProviderExchange } from './providers/types.js';
 import type { ProviderRuntimeContract } from './provider-contracts/registry.js';
+import { githubTokenRotationDue } from './github-mcp.js';
 
 const POLL_INTERVAL_MS = 1000;
 const ACTIVE_POLL_INTERVAL_MS = 500;
+
+// skill/github-app — how the runner ends itself to pick up a fresh GitHub
+// token. Deferred one tick so the log line flushes, like the mailbox-failure
+// exit below. Replaceable in tests only.
+let exitRunner = (): void => {
+  setTimeout(() => process.exit(0), 100);
+};
+export function __setRunnerExitForTests(fn: (() => void) | undefined): void {
+  if (process.env.NODE_ENV !== 'test') throw new Error('__setRunnerExitForTests is test-only');
+  exitRunner = fn ?? (() => setTimeout(() => process.exit(0), 100));
+}
 
 /** Consecutive driver-classified failures before a fresh runner is required. */
 const MAILBOX_FAILURE_STREAK_EXIT = 10;
@@ -150,6 +162,14 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
     if (!messages.some((m) => m.trigger === 1)) {
       await sleep(POLL_INTERVAL_MS);
       continue;
+    }
+
+    // skill/github-app — the outer loop is between queries, so this is a turn
+    // boundary too (see the follow-up poll in processQuery).
+    if (githubTokenRotationDue(process.env)) {
+      log('GitHub token near expiry — exiting before a new batch; the next spawn mints a fresh one');
+      exitRunner();
+      return;
     }
 
     const ids = messages.map((m) => m.id);
@@ -498,6 +518,19 @@ export async function processQuery(
 
         // Accumulated context must not engage a warm query by itself.
         if (!newMessages.some((m) => m.trigger === 1)) return;
+
+        // skill/github-app — a real turn boundary: nothing is being answered or
+        // queued, and the new message is not claimed yet. With an expiring
+        // GitHub token, end here instead of answering; the message stays
+        // pending and the host's next spawn answers it with a fresh token.
+        if (!answering && queuedTurns.length === 0 && githubTokenRotationDue(process.env)) {
+          log('GitHub token near expiry — exiting at a turn boundary; the next spawn mints a fresh one');
+          done = true;
+          clearInterval(pollHandle);
+          exitRunner();
+          query.end();
+          return;
+        }
 
         const newIds = newMessages.map((m) => m.id);
         markProcessing(newIds);

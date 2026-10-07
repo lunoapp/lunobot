@@ -39,3 +39,21 @@ export function githubMcpServer(
   }
   return { command: 'github-mcp-server', args: ['stdio'], env: ghEnv };
 }
+
+/**
+ * Installation tokens expire after an hour. Past this age the runner retires
+ * at the next idle turn boundary (poll-loop.ts), so the host's next spawn
+ * answers with a freshly minted token. The age is the file's mtime, which the
+ * host sets when it writes the token at mint time.
+ */
+export const GITHUB_TOKEN_ROTATE_AFTER_MS = 50 * 60 * 1000;
+
+export function githubTokenRotationDue(env: Record<string, string | undefined>, now = Date.now()): boolean {
+  const file = env.GITHUB_TOKEN_FILE;
+  if (!file) return false;
+  try {
+    return now - fs.statSync(file).mtimeMs > GITHUB_TOKEN_ROTATE_AFTER_MS;
+  } catch {
+    return false;
+  }
+}

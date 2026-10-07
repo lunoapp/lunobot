@@ -189,6 +189,12 @@ under its own bot identity rather than as a person. Wiring:
   starts `github/github-mcp-server` (toolsets `repos`, `issues`, `context`) with
   the token in that server's own env — **iff** the file is readable and non-empty,
   so an unconfigured install just runs without the tool.
+- The token lives one hour. Once the file is older than 50 minutes (its mtime is
+  the mint time), the runner ends itself at the next turn boundary — a new
+  message arriving while nothing is being answered stays pending, and the host's
+  next spawn answers it with a fresh token (`githubTokenRotationDue` in
+  `github-mcp.ts`, checked in `poll-loop.ts`). A turn already running finishes
+  first.
 - Which groups get it is `GITHUB_ENABLED_FOLDERS` in `.env`: group folders,
   comma-separated (`telegram_main,telegram_jan`). Folders, not display names,
   because only the folder is unique. Neither setting can widen what the App
