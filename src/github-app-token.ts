@@ -30,6 +30,12 @@ export const GITHUB_TOKEN_CONTAINER_PATH = `/workspace/${TOKEN_FILE_NAME}`;
 /** What github-mcp-server's `repos,issues,context` toolsets need, and nothing more. */
 const TOKEN_PERMISSIONS = { issues: 'write', contents: 'read', metadata: 'read' } as const;
 const MINT_TIMEOUT_MS = 10_000;
+/**
+ * Installation tokens expire after an hour. A container holding one is
+ * retired between turns once it is this old (host-sweep, `kill-lifetime`), so
+ * the next message spawns with a fresh token.
+ */
+export const GITHUB_TOKEN_CONTAINER_LIFETIME_MS = 55 * 60 * 1000;
 
 interface GithubAppConfig {
   appId: string;
@@ -156,5 +162,24 @@ export async function githubTokenEnv(agentGroup: AgentGroup, sessDir: string): P
       err,
     });
     return {};
+  }
+}
+
+/**
+ * Lifetime cap for a runtime this host just registered. A spawned container
+ * holds a token iff its spec carried the path; an adopted one (left by a
+ * previous host process) iff the file is still in its session directory, and
+ * then its token's age is unknown, so it is retired at the first idle sweep.
+ */
+export function githubTokenLifetimeCap(opts: {
+  adopted: boolean;
+  env?: Record<string, string>;
+  sessDir: string;
+}): number | undefined {
+  if (!opts.adopted) return opts.env?.[GITHUB_TOKEN_ENV] ? GITHUB_TOKEN_CONTAINER_LIFETIME_MS : undefined;
+  try {
+    return fs.lstatSync(path.join(opts.sessDir, TOKEN_FILE_NAME)).isFile() ? 0 : undefined;
+  } catch {
+    return undefined;
   }
 }
