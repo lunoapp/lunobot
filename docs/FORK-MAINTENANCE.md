@@ -38,7 +38,7 @@ This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is
 - **The bot on Telegram** is `@hiluno_bot` — DMs plus the luno group.
 - **Server pulls over SSH** — `origin` is `git@github-luno:lunoapp/lunobot.git`; the `github-luno` alias in `~/.ssh/config` carries the deploy key. The `nanoclaw` user has no HTTPS credentials, so an `https://` remote makes step 8 below fail with `could not read Username`.
 - **Old v1 install** still lives at `/home/nanoclaw/nanoclaw` (untouched, available for rollback).
-- **luno repo mount** — bot reads canonical product docs from `/workspace/extra/luno/` per-group via `container.json` `additionalMounts`. Server has the luno repo cloned at `/home/nanoclaw/luno` via SSH deploy key (`~/.ssh/luno_deploy_key`).
+- **luno repo mount** — bot reads canonical product docs from `/workspace/extra/luno/`, a per-group additional mount in the group's container config (`ncl groups config add-mount`). Server has the luno repo cloned at `/home/nanoclaw/luno` via SSH deploy key (`~/.ssh/luno_deploy_key`).
 - **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only), `/home/nanoclaw/.config/google-docs-mcp` (read-only) `/home/nanoclaw/social` (read-write) and `/home/nanoclaw/premarising` (read-write). A mount outside it is dropped with a warn-level `Additional mount REJECTED`. The host caches the file for its lifetime and checks mounts only when it creates a container, so an edit needs a service restart and then a container stop (`deploy-lunobot.sh --restart`); either alone is not enough.
 - **Whisper.cpp on host** — model at `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin`, binary at `/usr/local/bin/whisper-cli`. `WHISPER_*` env vars in v2's `.env`.
 - **Owner role**: the operator's Telegram identity is the global owner, via the `user_roles` table. The concrete id lives in the database, not in this repo.
@@ -86,6 +86,8 @@ ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw 
 
 # 9. Verify
 ssh luno "tail -20 /home/nanoclaw/nanoclaw-v2/logs/nanoclaw.log"
+# The central DB holds credentials (the Supabase token in container_configs) — must print 600:
+ssh luno "stat -c '%a' /home/nanoclaw/nanoclaw-v2/data/v2.db"   # fix: chmod 600 …/data/v2.db
 # Send a Telegram test message — text, voice, photo — confirm responses.
 ```
 
@@ -112,15 +114,27 @@ edited rules in force; `--clear` also wipes the conversation. Background and the
 it prevents: [docs/claude-md-composition.md](claude-md-composition.md), "Reload
 semantics".
 
-### Making a `container.json` change take effect
+### Changing a group's container config
 
-`container-runner.ts` calls `readContainerConfig()` at spawn time, so a **new** container
-picks up the edited file and a container that is already up keeps the config it started
-with. Restarting the service does not help: `KillMode=process` deliberately leaves the
-spawned containers running. Stop them, and the next inbound message spawns fresh:
+A group's container config — provider, model, packages, MCP servers, additional
+mounts — lives in the `container_configs` table in `data/v2.db`.
+`groups/<folder>/container.json` is materialized from that row at every spawn, so
+editing the file changes nothing: the next spawn overwrites it. Change the row
+with `ncl` on the host, then restart the group so a new container picks it up:
 
 ```bash
-ssh luno "docker ps --filter name=nanoclaw-v2 --format '{{.Names}}' | xargs -r docker stop"
+ssh luno "su - nanoclaw -c 'cd ~/nanoclaw-v2 && pnpm ncl groups config get --id <group-id>'"
+ssh luno "su - nanoclaw -c 'cd ~/nanoclaw-v2 && pnpm ncl groups config update --id <group-id> --model <model>'"
+#   also: config add-mcp-server / remove-mcp-server / add-mount / remove-mount / add-package
+ssh luno "su - nanoclaw -c 'cd ~/nanoclaw-v2 && pnpm ncl groups restart --id <group-id>'"
+```
+
+Restarting the service does not replace running containers: `KillMode=process`
+deliberately leaves them up. To stop every agent container of this install at
+once, filter by its install label (`deploy-lunobot.sh --restart` does the same):
+
+```bash
+ssh luno "docker ps --filter label=nanoclaw-install=1e478a5f --format '{{.Names}}' | xargs -r docker stop"
 ```
 
 Containers run with `--rm`, so their logs are gone once they exit — to debug one, `docker
@@ -186,9 +200,11 @@ secret — the same host-side principle as the IMAP rule in `docs/onecli.md`.
 ### Supabase read-only MCP
 
 `@supabase/mcp-server-supabase` (pinned in `container/Dockerfile`) gives the bot
-read-only queries against the production database. It is wired per group through
-`groups/<folder>/container.json` — server-local, `0600`, never in the repo, which
-is also where its access token sits.
+read-only queries against the production database. It is wired per group as an
+MCP server in the group's container config (`ncl groups config add-mcp-server`),
+which is also where its access token sits: in `container_configs` in
+`data/v2.db`, and in the `groups/<folder>/container.json` materialized from it at
+every spawn. Neither is in the repo.
 
 Not OneCLI, because the server authenticates against the Supabase management API
 with its own client that ignores `HTTPS_PROXY` under Node 22, so the gateway
@@ -196,7 +212,9 @@ cannot inject into it.
 
 **Caveat worth remembering:** `--read-only` is enforced by the MCP server, not by
 the token. The token itself is account-wide management API access, so a leak is
-not limited to reading. Treat the `container.json` files as credential files.
+not limited to reading. Treat `data/v2.db` and the materialized `container.json`
+files as credential files: `data/v2.db` is mode `0600` (checked in step 9 of the
+routine update).
 
 The durable domain vocabulary the bot needs for those queries lives in each
 group's `CLAUDE.local.md`; the schema itself is not hardcoded anywhere — the bot
@@ -215,10 +233,10 @@ luno repo under `docs/tech/database.md`, "Domain semantics".
 | `~/.local/bin/pnpm`, PATH update in `~/.bashrc` | nanoclaw user-local | pnpm without sudo. Install: `npm config set prefix ~/.local && npm install -g pnpm@<pinned>`. The first install leaves `.pnpm-XXX` symlinks instead of a `pnpm` one — fix with `ln -sf ~/.local/lib/node_modules/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm`. |
 | `loginctl enable-linger nanoclaw` (as root) | systemd | Keeps user systemd alive without active login. |
 | systemd unit `nanoclaw-v2-1e478a5f` | `~/.config/systemd/user/` | Generated by `pnpm exec tsx setup/index.ts --step service`. |
-| `.env` | project root | Channel tokens, OneCLI config, `WHISPER_*` paths, `GITHUB_APP_*`. |
+| `.env` | project root | Channel tokens, OneCLI config, `WHISPER_*` paths, `GITHUB_APP_*`, `GITHUB_ENABLED_FOLDERS`, `GITHUB_REPOSITORIES`. |
 | `~/agent-keys/github-app.pem` | nanoclaw home | **Required** — the GitHub App private key, `0600`. The host mints installation tokens from it on every spawn (see "Integrations wired per group"). Without it the GitHub tool silently stays off. |
 | Whisper binary + model | `/usr/local/bin/whisper-cli`, `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin` | Built from whisper.cpp source. See `.claude/skills/add-voice-transcription/SKILL.md`. |
-| `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state: users, roles, channel wiring, per-session history, and the agents' grown memory (`groups/<folder>/CLAUDE.local.md`). No application-level backup: `~/backups/pre-v2-*` is a one-off snapshot from the v2 migration, and upstream's `/update-nanoclaw` backup is a git tag of the code that never touches this directory. Recovery is Hetzner's whole-machine backup, so restore the server rather than looking for a dump of these paths. The wiring is cheap to rebuild by hand anyway (see "Channel wiring" below); `groups/` is the part that exists nowhere else. |
+| `data/v2.db`, `data/v2-sessions/`, `groups/` | project root | Runtime state: users, roles, channel wiring, container configs (including the Supabase token — `data/v2.db` is mode `0600`), per-session history, and each group's standing instructions and grown memory (`groups/<folder>/instructions.prepend.md`, `groups/<folder>/memory/`). No application-level backup: `~/backups/pre-v2-*` is a one-off snapshot from the v2 migration, and upstream's `/update-nanoclaw` backup is a git tag of the code that never touches this directory. Recovery is Hetzner's whole-machine backup, so restore the server rather than looking for a dump of these paths. The wiring is cheap to rebuild by hand anyway (see "Channel wiring" below); `groups/` is the part that exists nowhere else. |
 | OneCLI agent secret modes | OneCLI vault on server | `luno` and `Jan` are `secretMode=all`, so matching secrets and app connections auto-inject. `prema` is `selective` with only the Anthropic secret assigned (`onecli agents set-secrets`), because `all` would hand it the luno production credentials. Set via root: `onecli agents set-secret-mode --id <agent-id> --mode <all\|selective>`. Read back with `onecli agents list`. |
 | OneCLI Apps connected | OneCLI Web UI on server (`127.0.0.1:10254`) | Google Drive / Docs / Sheets connected via Apps Framework as `hallo@hiluno.com` with own developer credentials (GCP OAuth Client, Desktop type). Reach the Web UI from a workstation via SSH tunnel: `ssh -L 10254:127.0.0.1:10254 <host>` then browse `http://localhost:10254`. |
 | Google Docs MCP stubs | `~/.config/google-docs-mcp/token.json` on server (mode 600) | Stub file with `"onecli-managed"` placeholders; gateway swaps real Bearer at request time. See `.claude/skills/add-google-docs-mcp/SKILL.md` for the file shape. |
@@ -277,11 +295,11 @@ The v1 install at `/home/nanoclaw/nanoclaw` is preserved untouched.
 
 Things to verify on each upstream sync, because they touch our customizations or runtime expectations:
 
-- `src/channels/telegram.ts` — voice-transcription wrap point
+- `src/channels/telegram.ts` — voice-transcription and outbound-normalization wrap points
 - `src/channels/chat-sdk-bridge.ts` — attachment shape (we depend on `att.data` being base64-encoded)
 - `src/modules/mount-security/index.ts` — mount allowlist schema
 - `container/Dockerfile` — coolify-deploy LABEL line
-- `src/host-core.test.ts`, `src/modules/agent-to-agent/agent-route.test.ts` — drop our type-error patches when upstream fixes them (currently v2.0.44)
+- `src/reconcile-session.ts` — `decideStuckAction`, which carries our GitHub-token lifetime cap
 - `groups/global/CLAUDE.md` — v2 deletes this on startup. If upstream changes that behavior, our state will diverge. The Lunobot persona doesn't depend on this file (it's at `container/skills/lunobot-persona/`).
 
 ## Backup state on origin
