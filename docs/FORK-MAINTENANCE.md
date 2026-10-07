@@ -161,7 +161,10 @@ under its own bot identity rather than as a person. Wiring:
 
 - The App's **private key never enters the container**. `src/github-app-token.ts`
   signs a JWT host-side and exchanges it for a 1-hour installation token on every
-  spawn. App id and installation id come from `.env`.
+  spawn, scoped to the repositories in `GITHUB_REPOSITORIES` with `issues:write`,
+  `contents:read` and `metadata:read`. App id and installation id come from `.env`
+  as well. A failed or slow mint (10 s timeout) costs the session its GitHub tool,
+  never its spawn.
 - The token reaches the container **by reference**. The host writes it `0600` to
   `.github-token` in the session directory (mounted at `/workspace`) and sets only
   `GITHUB_TOKEN_FILE=/workspace/.github-token`. A token value in env would be
@@ -172,9 +175,10 @@ under its own bot identity rather than as a person. Wiring:
   starts `github/github-mcp-server` (toolsets `repos`, `issues`, `context`) with
   the token in that server's own env — **iff** the file is readable and non-empty,
   so an unconfigured install just runs without the tool.
-- Which groups get it is the `GITHUB_ENABLED_GROUPS` set in `github-app-token.ts`.
-  The App itself is installed on one repository, so the set can only narrow what
-  the App already permits, never widen it.
+- Which groups get it is `GITHUB_ENABLED_FOLDERS` in `.env`: group folders,
+  comma-separated (`telegram_main,telegram_jan`). Folders, not display names,
+  because only the folder is unique. Neither setting can widen what the App
+  installation itself permits.
 
 Not OneCLI, because App auth is private-key JWT crypto rather than a static
 secret — the same host-side principle as the IMAP rule in `docs/onecli.md`.

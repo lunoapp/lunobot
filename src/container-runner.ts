@@ -433,7 +433,7 @@ async function spawnContainer(session: Session): Promise<void> {
       gateway,
       mailboxEnvironment,
       // skill/github-app
-      extraEnv: await githubTokenEnv(agentGroup.name, sessionDir(agentGroup.id, session.id)),
+      extraEnv: await githubTokenEnv(agentGroup, sessionDir(agentGroup.id, session.id)),
     });
 
     log.info('Spawning session', { sessionId: session.id, agentGroup: agentGroup.name, containerName });

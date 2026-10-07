@@ -5,9 +5,10 @@
  * The token arrives by reference: GITHUB_TOKEN_FILE names a file in the
  * session directory, because the host's admission policy keeps credential
  * values out of container env. It is read here and handed to the MCP server's
- * own process env. Token scope is capped by the App (issues:write,
- * contents:read), so the toolset list is just an ergonomic default; anything
- * beyond the App's grant fails server-side. The OneCLI proxy and CA env are
+ * own process env. The host mints the token scoped to the configured
+ * repositories with issues:write, contents:read and metadata:read, so the
+ * toolset list is only an ergonomic default; a call beyond that scope fails at
+ * GitHub. The OneCLI proxy and CA env are
  * forwarded so api.github.com calls pass the gateway and trust its MITM cert
  * (Go honours SSL_CERT_FILE).
  */

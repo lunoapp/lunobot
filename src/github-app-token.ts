@@ -9,8 +9,10 @@
  * admission policy refuses credential values in env and exempts absolute paths
  * (isSecretShaped, src/drivers/types.ts); this is that sanctioned pattern.
  *
- * The container side reads the file and starts github-mcp-server with it
- * (container/agent-runner/src/github-mcp.ts).
+ * Which groups get it is `GITHUB_ENABLED_FOLDERS` in `.env` (group folders,
+ * comma-separated); the token is scoped to `GITHUB_REPOSITORIES` and to
+ * TOKEN_PERMISSIONS below. The container side reads the file and starts
+ * github-mcp-server with it (container/agent-runner/src/github-mcp.ts).
  */
 import crypto from 'crypto';
 import fs from 'fs';
@@ -18,37 +20,82 @@ import path from 'path';
 
 import { readEnvFile } from './env.js';
 import { log } from './log.js';
-
-// Agent groups that get the GitHub App tool wired in (luno team chat + Jan's
-// private chat). The App is scoped to lunoapp/luno, so this only grants what
-// the App already allows. Add a group name here to extend access.
-const GITHUB_ENABLED_GROUPS = new Set(['luno', 'Jan']);
+import type { AgentGroup } from './types.js';
 
 export const GITHUB_TOKEN_ENV = 'GITHUB_TOKEN_FILE';
 const TOKEN_FILE_NAME = '.github-token';
 /** Where the session directory's token file appears inside the agent container. */
 export const GITHUB_TOKEN_CONTAINER_PATH = `/workspace/${TOKEN_FILE_NAME}`;
 
-/** Mint an installation token. Returns null (and the tool stays off) when anything is unconfigured. */
-async function mintGithubAppToken(): Promise<string | null> {
-  const env = readEnvFile(['GITHUB_APP_ID', 'GITHUB_APP_INSTALLATION_ID']);
-  const appId = env.GITHUB_APP_ID;
-  const installationId = env.GITHUB_APP_INSTALLATION_ID;
+/** What github-mcp-server's `repos,issues,context` toolsets need, and nothing more. */
+const TOKEN_PERMISSIONS = { issues: 'write', contents: 'read', metadata: 'read' } as const;
+const MINT_TIMEOUT_MS = 10_000;
+
+interface GithubAppConfig {
+  appId: string;
+  installationId: string;
+  /** Group folders that get the tool. Folders are unique; display names are not. */
+  enabledFolders: Set<string>;
+  /** Repository names (without owner) the token is scoped to. */
+  repositories: string[];
+}
+
+function list(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function readConfig(): GithubAppConfig {
+  const env = readEnvFile([
+    'GITHUB_APP_ID',
+    'GITHUB_APP_INSTALLATION_ID',
+    'GITHUB_ENABLED_FOLDERS',
+    'GITHUB_REPOSITORIES',
+  ]);
+  return {
+    appId: env.GITHUB_APP_ID ?? '',
+    installationId: env.GITHUB_APP_INSTALLATION_ID ?? '',
+    enabledFolders: new Set(list(env.GITHUB_ENABLED_FOLDERS)),
+    repositories: list(env.GITHUB_REPOSITORIES),
+  };
+}
+
+/**
+ * Mint an installation token narrowed to the configured repositories and to
+ * TOKEN_PERMISSIONS — GitHub caps it further at what the App installation
+ * itself grants. Returns null (and the tool stays off) when anything is
+ * unconfigured or the exchange fails.
+ */
+async function mintGithubAppToken(config: GithubAppConfig): Promise<string | null> {
   const keyPath = path.join(process.env.HOME || '/home/nanoclaw', 'agent-keys', 'github-app.pem');
-  if (!appId || !installationId || !fs.existsSync(keyPath)) return null;
+  if (!config.appId || !config.installationId || config.repositories.length === 0 || !fs.existsSync(keyPath)) {
+    return null;
+  }
 
   try {
     const privateKey = fs.readFileSync(keyPath, 'utf8');
     const now = Math.floor(Date.now() / 1000);
     const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-    const payload = Buffer.from(JSON.stringify({ iat: now - 60, exp: now + 600, iss: appId })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ iat: now - 60, exp: now + 600, iss: config.appId })).toString(
+      'base64url',
+    );
     const signature = crypto.sign('sha256', Buffer.from(`${header}.${payload}`), privateKey).toString('base64url');
     const jwt = `${header}.${payload}.${signature}`;
 
-    const res = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
+    const res = await fetch(`https://api.github.com/app/installations/${config.installationId}/access_tokens`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json' },
+      body: JSON.stringify({ repositories: config.repositories, permissions: TOKEN_PERMISSIONS }),
+      signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
     });
+    if (!res.ok) {
+      // The status only: an error body can echo request details, and a success
+      // body is the credential itself.
+      log.warn('GitHub App token mint rejected', { status: res.status });
+      return null;
+    }
     const data = (await res.json()) as { token?: string };
     return data.token ?? null;
   } catch (err) {
@@ -57,32 +104,57 @@ async function mintGithubAppToken(): Promise<string | null> {
   }
 }
 
-export function writeGithubTokenFile(sessDir: string, token: string): void {
+/**
+ * Remove whatever sits at the token path. The session directory is
+ * agent-writable, so it may be a directory or a symlink the agent planted;
+ * lstat never follows a link, and removing the link leaves its target alone.
+ */
+export function clearGithubTokenFile(sessDir: string): void {
   const file = path.join(sessDir, TOKEN_FILE_NAME);
-  // Remove first: writeFileSync's mode applies only on create, and a file left
-  // by an older build could carry wider permissions.
-  fs.rmSync(file, { force: true });
-  fs.writeFileSync(file, token, { mode: 0o600 });
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(file);
+  } catch {
+    return; // nothing there
+  }
+  fs.rmSync(file, { recursive: stat.isDirectory(), force: true });
 }
 
-export function clearGithubTokenFile(sessDir: string): void {
-  fs.rmSync(path.join(sessDir, TOKEN_FILE_NAME), { force: true });
+/** Write the token owner-only. `wx` refuses to follow or reuse anything at the path. */
+export function writeGithubTokenFile(sessDir: string, token: string): void {
+  clearGithubTokenFile(sessDir);
+  const fd = fs.openSync(path.join(sessDir, TOKEN_FILE_NAME), 'wx', 0o600);
+  try {
+    fs.writeSync(fd, token);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**
- * The env a session needs for the GitHub tool: the token file path when this
- * group is enabled and a token could be minted, otherwise nothing. A stale
- * token file from an earlier spawn is removed either way.
+ * The env a session needs for the GitHub tool: the token file path when the
+ * group's folder is enabled and a token could be minted and written, otherwise
+ * nothing. Never throws: a GitHub problem must cost the session its GitHub
+ * tool, not its spawn.
  */
-export async function githubTokenEnv(groupName: string, sessDir: string): Promise<Record<string, string>> {
-  clearGithubTokenFile(sessDir);
-  if (!GITHUB_ENABLED_GROUPS.has(groupName)) return {};
-  const token = await mintGithubAppToken();
-  if (!token) {
-    log.warn('GitHub App token unavailable — github-mcp-server will stay off', { groupName });
+export async function githubTokenEnv(agentGroup: AgentGroup, sessDir: string): Promise<Record<string, string>> {
+  try {
+    clearGithubTokenFile(sessDir);
+    const config = readConfig();
+    if (!config.enabledFolders.has(agentGroup.folder)) return {};
+    const token = await mintGithubAppToken(config);
+    if (!token) {
+      log.warn('GitHub App token unavailable — github-mcp-server will stay off', { folder: agentGroup.folder });
+      return {};
+    }
+    writeGithubTokenFile(sessDir, token);
+    log.info('GitHub App token written for session', { folder: agentGroup.folder });
+    return { [GITHUB_TOKEN_ENV]: GITHUB_TOKEN_CONTAINER_PATH };
+  } catch (err) {
+    log.warn('GitHub App token could not be provided — github-mcp-server will stay off', {
+      folder: agentGroup.folder,
+      err,
+    });
     return {};
   }
-  writeGithubTokenFile(sessDir, token);
-  log.info('GitHub App token written for session', { groupName });
-  return { [GITHUB_TOKEN_ENV]: GITHUB_TOKEN_CONTAINER_PATH };
 }
