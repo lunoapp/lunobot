@@ -42,6 +42,7 @@ This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is
 - **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only), `/home/nanoclaw/.config/google-docs-mcp` (read-only) `/home/nanoclaw/social` (read-write) and `/home/nanoclaw/premarising` (read-write). A mount outside it is dropped with a warn-level `Additional mount REJECTED`. The host caches the file for its lifetime and checks mounts only when it creates a container, so an edit needs a service restart and a container stop — any `deploy-lunobot.sh` run does both.
 - **Whisper.cpp on host** — model at `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin`, binary at `/usr/local/bin/whisper-cli`. `WHISPER_*` env vars in v2's `.env`.
 - **Owner role**: the operator's Telegram identity is the global owner, via the `user_roles` table. The concrete id lives in the database, not in this repo.
+- **GitHub Actions**: only `CI` runs. Upstream's own workflows (Registry skills, Release, the three agent-image ones, both label ones) are disabled in the repo settings, because they target upstream's registry branches and release process and fail on every push here. The disabled state sticks to the workflow, so a merge that brings a new upstream workflow needs `gh workflow disable` for it.
 - **Service**: systemd user unit `nanoclaw-v2-1e478a5f` (slug = sha1(project_root)[:8]). Runs with `KillMode=process`, so a restart takes down the host process only — agent containers it spawned stay alive on purpose.
 
 ## Routine update from upstream
