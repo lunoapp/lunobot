@@ -117,7 +117,8 @@ describe('clone-git-guard.sh', () => {
       expect(res.stderr, url).toBe('');
       expect(res.status, url).toBe(0);
     }
-  });
+    // One repository fixture per URL: slow under a loaded full run.
+  }, 30_000);
 
   it('refuses to fetch from an origin that is not an expected ssh GitHub URL', () => {
     for (const url of [
@@ -137,7 +138,8 @@ describe('clone-git-guard.sh', () => {
       expect(res.status, url).not.toBe(0);
       expect(res.stderr).toMatch(/not an expected ssh GitHub URL/);
     }
-  });
+    // One repository fixture per URL: slow under a loaded full run.
+  }, 30_000);
 
   it('refuses an include that would pull in more config', () => {
     const f = cloneFixture();
