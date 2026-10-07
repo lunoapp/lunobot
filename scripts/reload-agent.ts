@@ -26,14 +26,22 @@ import path from 'path';
 
 import { DATA_DIR } from '../src/config.js';
 import { getAllAgentGroups } from '../src/db/agent-groups.js';
-import { initDb } from '../src/db/connection.js';
+import { closeDb, initDb } from '../src/db/connection.js';
 import { getMessagingGroup } from '../src/db/messaging-groups.js';
-import { getActiveSessions } from '../src/db/sessions.js';
+import { getActiveSessions, isTaskThread } from '../src/db/sessions.js';
+// Registers the session mailbox writeSessionMessage goes through; the host and
+// setup/register.ts import it the same way.
+import '../src/mailbox/compose.js';
 import { writeSessionMessage } from '../src/session-manager.js';
 import type { MessagingGroup, Session } from '../src/types.js';
 
+/**
+ * The group's chat sessions. Task sessions are left out: each task series runs
+ * in its own session that starts from the composed document anyway, and a
+ * `/clear` there would have no chat to answer into.
+ */
 export function selectSessionsToClear(sessions: Session[], agentGroupId: string): Session[] {
-  return sessions.filter((s) => s.agent_group_id === agentGroupId);
+  return sessions.filter((s) => s.agent_group_id === agentGroupId && !isTaskThread(s.thread_id));
 }
 
 export function buildClearMessage(
@@ -64,21 +72,21 @@ export function buildClearMessage(
   };
 }
 
-async function main(): Promise<void> {
-  const name = process.argv[2];
-  if (!name) {
-    console.error('usage: pnpm exec tsx scripts/reload-agent.ts <agent-group-name>');
-    process.exit(2);
-  }
-
+export async function reloadAgent(name: string): Promise<void> {
   await initDb(path.join(DATA_DIR, 'v2.db'));
+  try {
+    await queueClear(name);
+  } finally {
+    await closeDb();
+  }
+}
 
+async function queueClear(name: string): Promise<void> {
   const groups = await getAllAgentGroups();
   const group = groups.find((g) => g.name === name);
   if (!group) {
     const known = groups.map((g) => g.name).join(', ');
-    console.error(`No agent group named "${name}". Known groups: ${known || '(none)'}`);
-    process.exit(1);
+    throw new Error(`No agent group named "${name}". Known groups: ${known || '(none)'}`);
   }
 
   const sessions = selectSessionsToClear(await getActiveSessions(), group.id);
@@ -102,5 +110,15 @@ async function main(): Promise<void> {
 
 // Only run the CLI when invoked directly, so the tests can import the helpers.
 if (process.argv[1] && /reload-agent\.ts$/.test(process.argv[1])) {
-  await main();
+  const name = process.argv[2];
+  if (!name) {
+    console.error('usage: pnpm exec tsx scripts/reload-agent.ts <agent-group-name>');
+    process.exit(2);
+  }
+  try {
+    await reloadAgent(name);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
 }
