@@ -37,11 +37,11 @@ function now(): string {
   return new Date().toISOString();
 }
 
-let endContainer: (() => void) | undefined;
+let endContainer: ((failure?: unknown) => void) | undefined;
 function fakeHandle(sessionId: string, name: string): SupervisedHandle {
   const terminalCallbacks: Array<(failure?: unknown) => void> = [];
-  endContainer = () => {
-    for (const callback of terminalCallbacks) callback(undefined);
+  endContainer = (failure?: unknown) => {
+    for (const callback of terminalCallbacks) callback(failure);
   };
   return {
     key: { installSlug: 'test-install', agentGroupId: 'ag-1', sessionId },
@@ -115,5 +115,16 @@ describe('container exit hands the session to reconcile', () => {
 
     await vi.waitFor(() => expect(enqueued.map((e) => e.sessionId)).toContain('sess-1'));
     expect(enqueued.find((e) => e.sessionId === 'sess-1')!.runningAtEnqueue).toBe(false);
+  });
+
+  it('does not hurry a container that died: the periodic sweep keeps pacing a crash loop', async () => {
+    snapshots.push({ handle: fakeHandle('sess-1', 'container-a'), phase: 'running' } as SupervisedSnapshot);
+    await adoptRunningSessions();
+
+    endContainer!({ kind: 'started-then-died', retryable: false, exitCode: 1 });
+
+    await vi.waitFor(() => expect(isContainerRunning('sess-1')).toBe(false));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(enqueued.map((e) => e.sessionId)).not.toContain('sess-1');
   });
 });

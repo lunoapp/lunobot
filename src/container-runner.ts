@@ -767,7 +767,11 @@ async function finish(sessionId: string, runtime: ActiveSessionRuntime, failure?
   // a fresh GitHub token does exactly that) would otherwise wait for the next
   // periodic sweep. Reconcile is level-triggered: it wakes only when something
   // is due and no container runs, so an ordinary end costs one no-op re-read.
-  enqueueSessionReconcile(sessionId);
+  // Only a clean end: a container that died or was stopped is left to the
+  // periodic sweep, whose interval is what paces a crash loop.
+  const cleanExit =
+    !runtime.stopReason && (!failure || (failure.kind === 'started-then-died' && failure.exitCode === 0));
+  if (cleanExit) enqueueSessionReconcile(sessionId);
 }
 
 /** Kill a container for a session. */
