@@ -13,12 +13,15 @@ import fs from 'fs';
 import { SDK_DISALLOWED_TOOLS, TOOL_ALLOWLIST } from './claude.js';
 import baseline from './sdk-tools-baseline.json';
 
-/** CLI pin lives in the Dockerfile ARG — the only place that installs it. */
+/** CLI pin lives in container/cli-tools.json — the only place that installs it. */
 function pinnedCliVersion(): string {
-  const dockerfile = fs.readFileSync(new URL('../../../Dockerfile', import.meta.url), 'utf8');
-  const match = dockerfile.match(/^ARG CLAUDE_CODE_VERSION=(.+)$/m);
-  if (!match) throw new Error('CLAUDE_CODE_VERSION not found in container/Dockerfile');
-  return match[1].trim();
+  const tools = JSON.parse(fs.readFileSync(new URL('../../../cli-tools.json', import.meta.url), 'utf8')) as Array<{
+    name: string;
+    version: string;
+  }>;
+  const cli = tools.find((t) => t.name === '@anthropic-ai/claude-code');
+  if (!cli) throw new Error('@anthropic-ai/claude-code not found in container/cli-tools.json');
+  return cli.version;
 }
 
 const installedSdkVersion = (
@@ -33,7 +36,11 @@ const installedSdkVersion = (
  * (ENABLE_TOOL_SEARCH=0), so it is absent from a healthy capture — its
  * reappearance means deferral came back on and belongs in a failing test.
  */
-const KNOWN_ABSENT: string[] = [];
+//
+// AskUserQuestion, EnterPlanMode and ExitPlanMode left the surface with CLI
+// 2.1.280; upstream keeps disallowing them, which costs nothing and holds if
+// a later CLI brings them back.
+const KNOWN_ABSENT: string[] = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'];
 
 // Membership checks run against stable ∪ variant: a tool that flickers on
 // this pin (see dump-sdk-tools.ts header) is still a real tool.

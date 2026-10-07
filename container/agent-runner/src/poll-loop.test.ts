@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
-import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from './db/connection.js';
-import { getPendingMessages, markCompleted, selectBatch } from './db/messages-in.js';
+import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from './mailbox/sqlite/connection.js';
+import { getPendingMessages, markCompleted } from './db/messages-in.js';
 import { getUndeliveredMessages } from './db/messages-out.js';
 import { formatMessages, extractRouting } from './formatter.js';
+import { processQuery } from './poll-loop.js';
 import { MockProvider } from './providers/mock.js';
+import type { AgentQuery, ProviderEvent, ProviderExchange } from './providers/types.js';
 
 beforeEach(() => {
   initTestSessionDb();
@@ -18,14 +20,14 @@ function insertMessage(
   id: string,
   kind: string,
   content: object,
-  opts?: { processAfter?: string; trigger?: 0 | 1; seq?: number },
+  opts?: { processAfter?: string; trigger?: 0 | 1; onWake?: 0 | 1 },
 ) {
   getInboundDb()
     .prepare(
-      `INSERT INTO messages_in (id, seq, kind, timestamp, status, process_after, trigger, content)
-     VALUES (?, ?, ?, datetime('now'), 'pending', ?, ?, ?)`,
+      `INSERT INTO messages_in (id, kind, timestamp, status, process_after, trigger, on_wake, content)
+     VALUES (?, ?, datetime('now'), 'pending', ?, ?, ?, ?)`,
     )
-    .run(id, opts?.seq ?? null, kind, opts?.processAfter ?? null, opts?.trigger ?? 1, JSON.stringify(content));
+    .run(id, kind, opts?.processAfter ?? null, opts?.trigger ?? 1, opts?.onWake ?? 0, JSON.stringify(content));
 }
 
 describe('formatter', () => {
@@ -37,13 +39,15 @@ describe('formatter', () => {
     expect(prompt).toContain('Hello world');
   });
 
-  it('should format multiple chat messages as XML block', () => {
+  it('should format multiple chat messages as distinct <message> blocks', () => {
     insertMessage('m1', 'chat', { sender: 'John', text: 'Hello' });
     insertMessage('m2', 'chat', { sender: 'Jane', text: 'Hi there' });
     const messages = getPendingMessages();
     const prompt = formatMessages(messages);
-    expect(prompt).toContain('<messages>');
-    expect(prompt).toContain('</messages>');
+    // The <messages> envelope was dropped in fe2e881b (#2556) so the SDK calls
+    // the API; each message is now its own self-contained <message> block.
+    expect(prompt).not.toContain('<messages>');
+    expect(prompt.match(/<message /g) ?? []).toHaveLength(2);
     expect(prompt).toContain('sender="John"');
     expect(prompt).toContain('sender="Jane"');
   });
@@ -104,42 +108,22 @@ describe('accumulate gate (trigger column)', () => {
     expect(byId.m2.trigger).toBe(1);
   });
 
-  it('selectBatch: accumulate-only pending set yields nothing to process', () => {
+  it('trigger=0-only batch: gate predicate `some(trigger===1)` is false', () => {
     insertMessage('m1', 'chat', { sender: 'A', text: 'noise' }, { trigger: 0 });
     insertMessage('m2', 'chat', { sender: 'B', text: 'more noise' }, { trigger: 0 });
-    expect(selectBatch(getPendingMessages())).toEqual([]);
-  });
-
-  it('selectBatch: a triggering chat message carries the accumulated rows along', () => {
-    insertMessage('m1', 'chat', { sender: 'A', text: 'earlier chatter' }, { trigger: 0, seq: 2 });
-    insertMessage('m2', 'chat', { sender: 'B', text: 'the real mention' }, { trigger: 1, seq: 4 });
-    expect(selectBatch(getPendingMessages()).map((m) => m.id)).toEqual(['m1', 'm2']);
-  });
-
-  it('selectBatch: a due task alone leaves the accumulated rows pending', () => {
-    insertMessage('m1', 'chat', { sender: 'A', text: 'chatter' }, { trigger: 0, seq: 2 });
-    insertMessage('t1', 'task', { prompt: 'daily digest' }, { seq: 4 });
-    expect(selectBatch(getPendingMessages()).map((m) => m.id)).toEqual(['t1']);
-  });
-
-  it('getPendingMessages: a due task is not pushed out of the window by accumulated rows', () => {
-    // The task was scheduled long ago, so its seq is older than all chatter.
-    insertMessage('t1', 'task', { prompt: 'daily digest' }, { seq: 2 });
-    for (let i = 0; i < 12; i++) {
-      insertMessage(`c${i}`, 'chat', { sender: 'A', text: `chatter ${i}` }, { trigger: 0, seq: 10 + 2 * i });
-    }
     const messages = getPendingMessages();
-    expect(messages.map((m) => m.id)).toContain('t1');
-    expect(messages.filter((m) => m.trigger === 0)).toHaveLength(10);
-    expect(messages.map((m) => m.id)).not.toContain('c0');
+    // This is the exact predicate the poll loop uses to skip accumulate-only
+    // batches — gate should be false, so the loop sleeps without waking the agent.
+    expect(messages.some((m) => m.trigger === 1)).toBe(false);
   });
 
-  it('getPendingMessages: accumulated rows not yet due do not take window slots', () => {
-    for (let i = 0; i < 10; i++) {
-      insertMessage(`c${i}`, 'chat', { sender: 'A', text: `chatter ${i}` }, { trigger: 0, seq: 2 + 2 * i });
-    }
-    insertMessage('later', 'chat', { sender: 'A', text: 'retry later' }, { trigger: 0, seq: 100, processAfter: '2999-01-01 00:00:00' });
-    expect(getPendingMessages().filter((m) => m.trigger === 0)).toHaveLength(10);
+  it('mixed batch: gate is true → loop proceeds, accumulated rows ride along', () => {
+    insertMessage('m1', 'chat', { sender: 'A', text: 'earlier chatter' }, { trigger: 0 });
+    insertMessage('m2', 'chat', { sender: 'B', text: 'the real mention' }, { trigger: 1 });
+    const messages = getPendingMessages();
+    expect(messages.some((m) => m.trigger === 1)).toBe(true);
+    // Both messages are present for the formatter → agent sees the prior context.
+    expect(messages.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
   });
 
   it('trigger column defaults to 1 for legacy inserts without explicit value', () => {
@@ -153,6 +137,58 @@ describe('accumulate gate (trigger column)', () => {
       .run();
     const [msg] = getPendingMessages();
     expect(msg.trigger).toBe(1);
+  });
+});
+
+describe('on_wake filtering', () => {
+  it('first poll returns on_wake=1 messages', () => {
+    insertMessage('m1', 'chat', { sender: 'system', text: 'Resuming.' }, { onWake: 1 });
+    const messages = getPendingMessages(true);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe('m1');
+  });
+
+  it('subsequent polls skip on_wake=1 messages', () => {
+    insertMessage('m1', 'chat', { sender: 'system', text: 'Resuming.' }, { onWake: 1 });
+    const messages = getPendingMessages(false);
+    expect(messages).toHaveLength(0);
+  });
+
+  it('normal messages returned regardless of isFirstPoll', () => {
+    insertMessage('m1', 'chat', { sender: 'A', text: 'hello' });
+    expect(getPendingMessages(true)).toHaveLength(1);
+
+    // Reset: mark completed so we can re-test with a fresh message
+    markCompleted(['m1']);
+    insertMessage('m2', 'chat', { sender: 'A', text: 'hello again' });
+    expect(getPendingMessages(false)).toHaveLength(1);
+  });
+
+  it('mixed batch: first poll returns both normal and on_wake messages', () => {
+    insertMessage('m1', 'chat', { sender: 'A', text: 'user msg' });
+    insertMessage('m2', 'chat', { sender: 'system', text: 'Resuming.' }, { onWake: 1 });
+    const messages = getPendingMessages(true);
+    expect(messages).toHaveLength(2);
+    expect(messages.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
+  });
+
+  it('mixed batch: subsequent poll returns only normal messages', () => {
+    insertMessage('m1', 'chat', { sender: 'A', text: 'user msg' });
+    insertMessage('m2', 'chat', { sender: 'system', text: 'Resuming.' }, { onWake: 1 });
+    const messages = getPendingMessages(false);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe('m1');
+  });
+
+  it('on_wake defaults to 0 for inserts without explicit value', () => {
+    getInboundDb()
+      .prepare(
+        `INSERT INTO messages_in (id, kind, timestamp, status, content)
+         VALUES ('m1', 'chat', datetime('now'), 'pending', '{"text":"hi"}')`,
+      )
+      .run();
+    // Should be returned even on non-first poll (on_wake=0)
+    expect(getPendingMessages(false)).toHaveLength(1);
   });
 });
 
@@ -184,7 +220,13 @@ describe('origin metadata (from= attribute)', () => {
       .run(name, name, channelType, platformId);
   }
 
-  function insertWithRouting(id: string, kind: string, content: object, channelType: string | null, platformId: string | null): void {
+  function insertWithRouting(
+    id: string,
+    kind: string,
+    content: object,
+    channelType: string | null,
+    platformId: string | null,
+  ): void {
     getInboundDb()
       .prepare(
         `INSERT INTO messages_in (id, kind, timestamp, status, platform_id, channel_type, content)
@@ -260,10 +302,12 @@ describe('mock provider', () => {
     }
 
     const typed = events.filter((e) => e.type !== 'activity');
-    expect(typed.length).toBeGreaterThanOrEqual(2);
+    expect(typed.length).toBeGreaterThanOrEqual(3);
     expect(typed[0].type).toBe('init');
-    expect(typed[1].type).toBe('result');
-    expect((typed[1] as { text: string }).text).toBe('Echo: Hello');
+    // The mock streams text before the result repeats it.
+    expect(typed[1].type).toBe('text');
+    expect(typed[2].type).toBe('result');
+    expect((typed[2] as { text: string }).text).toBe('Echo: Hello');
   });
 
   it('should handle push() during active query', async () => {
@@ -318,7 +362,7 @@ describe('end-to-end with mock provider', () => {
 
     for await (const event of query.events) {
       if (event.type === 'result' && event.text) {
-        writeMessageOut({
+        await writeMessageOut({
           id: `out-${Date.now()}`,
           in_reply_to: routing.inReplyTo,
           kind: 'chat',
@@ -342,4 +386,249 @@ describe('end-to-end with mock provider', () => {
     expect(JSON.parse(outMessages[0].content).text).toBe('The answer is 4');
     expect(outMessages[0].in_reply_to).toBe('m1');
   });
+});
+
+/**
+ * Build a one-shot stub query that yields init + a single result event, then
+ * ends. `pushes` records any follow-ups the loop tried to inject (e.g. the
+ * re-wrap nudge), so a test can assert the loop did NOT re-hammer.
+ */
+function makeResultQuery(result: ProviderEvent): { query: AgentQuery; pushes: string[] } {
+  const pushes: string[] = [];
+  async function* events(): AsyncGenerator<ProviderEvent> {
+    yield { type: 'init', continuation: 'sess-1' };
+    yield result;
+  }
+  return {
+    pushes,
+    query: {
+      push: (m: string) => {
+        pushes.push(m);
+      },
+      end: () => {},
+      events: events(),
+      abort: () => {},
+    },
+  };
+}
+
+const ERR_ROUTING = {
+  platformId: 'chan-1',
+  channelType: 'discord',
+  threadId: null,
+  inReplyTo: 'm1',
+};
+
+it('does not push accumulated-only follow-ups into an active query', async () => {
+  const pushes: string[] = [];
+
+  async function* events(): AsyncGenerator<ProviderEvent> {
+    yield { type: 'init', continuation: 'sess-1' };
+    insertMessage('m1', 'chat', { sender: 'A', text: 'context only' }, { trigger: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+
+  await processQuery(
+    {
+      push: (message) => pushes.push(message),
+      end: () => {},
+      events: events(),
+      abort: () => {},
+    },
+    ERR_ROUTING,
+    [],
+    'claude',
+    undefined,
+    'prompt',
+    undefined,
+  );
+
+  expect(pushes).toHaveLength(0);
+  expect(getPendingMessages().map((m) => m.id)).toEqual(['m1']);
+});
+
+describe('error result with no <message> envelope', () => {
+  it('delivers a safe failure notice to the triggering channel and does not nudge', async () => {
+    const budgetText = 'Spending limit reached. Add your own key at https://example.com/keys';
+    const { query, pushes } = makeResultQuery({ type: 'result', text: budgetText, isError: true });
+
+    await processQuery(query, ERR_ROUTING, ['m1'], 'claude', undefined, 'prompt', undefined);
+
+    const out = getUndeliveredMessages();
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0].content).text).toBe('The agent run failed. Check the logs for details.');
+    expect(out[0].platform_id).toBe('chan-1');
+    expect(out[0].channel_type).toBe('discord');
+    // No re-wrap nudge — an error result must not re-hammer the gateway.
+    expect(pushes).toHaveLength(0);
+  });
+
+  it.each([
+    '<internal>PRIVATE THOUGHTS</internal>\n\nOpenCode prompt failed: {"responseHeaders":{"authorization":"fixture-secret"}}',
+    'Unwrapped private reasoning\n\n{"responseBody":"fixture-secret"}',
+    '',
+  ])('keeps failed-turn scratchpad and diagnostics out of chat: %s', async (text) => {
+    const { query, pushes } = makeResultQuery({ type: 'result', text, isError: true });
+    const exchanges: ProviderExchange[] = [];
+    await processQuery(query, ERR_ROUTING, ['m1'], 'mock', (exchange) => exchanges.push(exchange), 'prompt', undefined);
+    expect(getUndeliveredMessages().map((row) => JSON.parse(row.content).text)).toEqual([
+      'The agent run failed. Check the logs for details.',
+    ]);
+    expect(exchanges).toHaveLength(1);
+    expect(exchanges[0].status).toBe('error');
+    expect(exchanges[0].result).toBe(text);
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('still nudges (and does not deliver) a normal unwrapped result', async () => {
+    const { query, pushes } = makeResultQuery({ type: 'result', text: 'bare text, no envelope' });
+
+    await processQuery(query, ERR_ROUTING, ['m1'], 'claude', undefined, 'prompt', undefined);
+
+    expect(getUndeliveredMessages()).toHaveLength(0);
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]).toContain('was not delivered');
+  });
+});
+
+it('delivers completed wrapped text while recording the failed turn exactly once', async () => {
+  getInboundDb()
+    .prepare(
+      `INSERT INTO destinations (name, display_name, type, channel_type, platform_id, agent_group_id)
+     VALUES ('main', 'main', 'channel', 'discord', 'chan-1', NULL)`,
+    )
+    .run();
+  const text = '<message to="main">Completed before failure.</message>\n\nBackend failed.';
+  const { query, pushes } = makeResultQuery({ type: 'result', text, isError: true });
+  const exchanges: ProviderExchange[] = [];
+
+  await processQuery(query, ERR_ROUTING, ['m1'], 'mock', (exchange) => exchanges.push(exchange), 'prompt', undefined);
+
+  expect(getUndeliveredMessages().map((row) => JSON.parse(row.content).text)).toEqual([
+    'Completed before failure.',
+    'The agent run failed. Check the logs for details.',
+  ]);
+  expect(exchanges).toEqual([{ prompt: 'prompt', result: text, continuation: 'sess-1', status: 'error' }]);
+  expect(pushes).toHaveLength(0);
+});
+
+// --- Task-run turn wiring: the REAL processQuery path (one-door) ---
+// These drive the actual call sites (autoAppendTaskLog at result-handling,
+// shouldNudgeTaskBlocks gating, and follow-up turn reset). Deleting the wiring
+// — not just the helpers — goes red here.
+
+const TASK_ROUTING = {
+  platformId: null,
+  channelType: null,
+  threadId: 'system:tasks:ser-1',
+  inReplyTo: 't1',
+  taskRun: true,
+};
+
+function taskLogRows(): Array<{ text: string }> {
+  return (
+    getOutboundDb().prepare("SELECT content FROM messages_out WHERE kind = 'task_log' ORDER BY seq").all() as Array<{
+      content: string;
+    }>
+  ).map((r) => JSON.parse(r.content) as { text: string });
+}
+
+describe('task-run turn wiring (real processQuery)', () => {
+  it('logs a failed task with inert message blocks once and does not retry delivery', async () => {
+    const text = '<message to="main">Completed before failure.</message>\n\nBackend failed.';
+    const { query, pushes } = makeResultQuery({ type: 'result', text, isError: true });
+    const exchanges: ProviderExchange[] = [];
+
+    await processQuery(
+      query,
+      TASK_ROUTING,
+      ['t1'],
+      'mock',
+      (exchange) => exchanges.push(exchange),
+      'prompt',
+      undefined,
+    );
+
+    expect(taskLogRows()).toEqual([{ text: '[undelivered → main] Completed before failure. Backend failed.' }]);
+    expect(getUndeliveredMessages().filter((row) => row.kind === 'chat')).toHaveLength(0);
+    expect(exchanges).toEqual([{ prompt: 'prompt', result: text, continuation: 'sess-1', status: 'error' }]);
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('auto-appends the final text as a task_log row', async () => {
+    async function* events(): AsyncGenerator<ProviderEvent> {
+      yield { type: 'init', continuation: 's1' };
+      yield { type: 'result', text: 'checked feeds — nothing new' };
+    }
+    const query: AgentQuery = { push: () => {}, end: () => {}, events: events(), abort: () => {} };
+
+    await processQuery(query, TASK_ROUTING, ['t1'], 'claude', undefined, 'prompt', undefined);
+
+    const logs = taskLogRows();
+    expect(logs).toHaveLength(1);
+    expect(logs[0].text).toBe('checked feeds — nothing new');
+    // and nothing was delivered as chat
+    expect(getUndeliveredMessages().filter((m) => m.kind === 'chat')).toHaveLength(0);
+  });
+
+  it('logs and conditionally nudges a second task run in the same open query', async () => {
+    const pushes: string[] = [];
+
+    async function* events(): AsyncGenerator<ProviderEvent> {
+      yield { type: 'init', continuation: 's1' };
+      // Turn 1 uses the legacy wrong door and consumes its one correction.
+      yield { type: 'result', text: '<message to="local-cli">fire one result</message>' };
+      yield { type: 'result', text: 'first delivery decision handled' };
+
+      // A SECOND task run lands while the query is open — the follow-up poller
+      // pushes it and must reset the per-turn correction state.
+      insertMessage('t2', 'task', { prompt: 'fire two' });
+      // The poller ticks every ACTIVE_POLL_INTERVAL_MS (500ms), so this
+      // normally resolves in well under a second. The generous deadline is
+      // for slow shared CI runners — and it must stay well below the test's
+      // own timeout (set below), so exhaustion fails on the diagnostic throw
+      // rather than a mute test timeout.
+      const deadline = Date.now() + 15_000;
+      while (!pushes.some((p) => p.includes('fire two')) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!pushes.some((p) => p.includes('fire two'))) {
+        throw new Error(
+          `follow-up poller never pushed the second task run within 15s; ` +
+            `pushes seen (${pushes.length}): ${JSON.stringify(pushes.map((p) => p.slice(0, 80)))}`,
+        );
+      }
+
+      // Turn 2 repeats the mistake. This receives a second independent nudge
+      // only if the follow-up path reset taskBlockNudged.
+      yield { type: 'result', text: '<message to="local-cli">fire two result</message>' };
+      yield { type: 'result', text: 'second delivery decision handled' };
+    }
+
+    const query: AgentQuery = {
+      push: (m: string) => {
+        pushes.push(m);
+      },
+      end: () => {},
+      events: events(),
+      abort: () => {},
+    };
+
+    await processQuery(query, TASK_ROUTING, ['t1'], 'claude', undefined, 'prompt', undefined);
+
+    const nudges = pushes.filter((p) => p.includes('If and only if'));
+    expect(nudges).toHaveLength(2);
+    expect(nudges[0]).toContain('fire one result');
+    expect(nudges[1]).toContain('fire two result');
+
+    const logs = taskLogRows().map((l) => l.text);
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toContain('[undelivered → local-cli] fire one result');
+    expect(logs[1]).toContain('[undelivered → local-cli] fire two result');
+    expect(logs).not.toContain('first delivery decision handled');
+    expect(logs).not.toContain('second delivery decision handled');
+    // Explicit budget: the default 5s equalled the old inner deadline, so on
+    // slow runners the test died as a mute timeout instead of reaching the
+    // diagnostic throw above (observed consistently on CI-hosted runners).
+  }, 20_000);
 });

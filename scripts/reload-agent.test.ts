@@ -10,11 +10,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // formatter.ts pulls in destinations.ts, whose DB layer is Bun-only
-// (`bun:sqlite`), and this suite runs under Node. The stub exists solely to
-// break that import chain — `isClearCommand` and `extractRouting` below are
+// (`bun:sqlite`), and the provider registry, which loads the container-only
+// SDK; this suite runs under Node. The stubs exist solely to break those
+// import chains — `isClearCommand` and `extractRouting` below are
 // the container's real implementations, which is the point of the file.
 vi.mock('../container/agent-runner/src/destinations.js', () => ({
   findByRouting: () => undefined,
+}));
+// The provider registrations import the Claude Agent SDK, which is a
+// container-only dependency; nothing under test touches a provider.
+vi.mock('../container/agent-runner/src/providers/index.js', () => ({}));
+vi.mock('../container/agent-runner/src/provider-contracts/index.js', () => ({}));
+vi.mock('../container/agent-runner/src/providers/provider-registry.js', () => ({
+  getProviderRuntimeContract: () => undefined,
 }));
 
 import { extractRouting, isClearCommand } from '../container/agent-runner/src/formatter.js';
@@ -53,7 +61,7 @@ function asRow(msg: ReturnType<typeof buildClearMessage>): MessageInRow {
     process_after: null,
     recurrence: null,
     tries: 0,
-    trigger: msg.trigger,
+    trigger: msg.trigger ? 1 : 0,
     platform_id: msg.platformId,
     channel_type: msg.channelType,
     thread_id: msg.threadId,

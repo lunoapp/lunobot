@@ -29,6 +29,9 @@ set -euo pipefail
 
 SERVER=luno
 PROJECT=nanoclaw-v2
+# sha1(project root)[:8]: the slug in the systemd unit name and in the
+# `nanoclaw-install` label every agent container carries.
+INSTALL_SLUG=1e478a5f
 AGENT_GROUP=luno
 # Clones mounted into agent containers. A container has no SSH key, so the host
 # updates them here, where the deploy keys are. RESET_REPOS hold only data a run
@@ -86,7 +89,9 @@ if [ "$RESTART" = "1" ]; then
   # `docker ps` leaves xargs nothing to do and the whole thing exits 0, so a
   # permission error would read as a successful restart.
   echo "→ stopping agent containers (next message spawns fresh)"
-  NAMES=$(ssh "$SERVER" "docker ps --filter name=$PROJECT --format '{{.Names}}'")
+  # By label, not name: container names are key-derived `ncl-…` ids, and the
+  # install label scopes the stop to this install's agents.
+  NAMES=$(ssh "$SERVER" "docker ps --filter label=nanoclaw-install=$INSTALL_SLUG --format '{{.Names}}'")
   if [ -n "$NAMES" ]; then
     echo "$NAMES" | while read -r name; do
       # -n: without it ssh drains the loop's stdin and only the first

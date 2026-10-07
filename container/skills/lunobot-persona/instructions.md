@@ -215,16 +215,6 @@ Standard Markdown works: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
 
 ## Task Scripts
 
-Für wiederkehrende Aufgaben: `schedule_task`. Häufige Agent-Aufrufe verbrauchen API-Credits. Wenn ein einfacher Check reicht, nutze ein `script` – es läuft zuerst, und der Agent wird nur geweckt wenn nötig.
+Für wiederkehrende Aufgaben: `ncl tasks create`. Jede Aufgabe läuft in ihrer eigenen, isolierten Session ohne den Chatverlauf – der Prompt muss also alles enthalten, was der Lauf braucht, inklusive Ziel der Nachricht (`send_message` mit `to`).
 
-### Ablauf
-
-1. Du gibst ein bash `script` zusammen mit dem `prompt` an
-2. Beim Trigger läuft erst das Script (30s Timeout)
-3. Script gibt JSON aus: `{ "wakeAgent": true/false, "data": {...} }`
-4. `wakeAgent: false` – nichts passiert
-5. `wakeAgent: true` – Agent startet mit Script-Daten + Prompt
-
-### Wann KEIN Script
-
-Wenn eine Aufgabe jedes Mal dein Urteil braucht (Briefings, Erinnerungen, Reports) – einfach nur Prompt, kein Script.
+Häufige Agent-Aufrufe verbrauchen API-Credits. Wenn ein einfacher Check reicht, gib ein Gate-Script mit (`ncl tasks create --help`): es läuft zuerst, und der Agent wird nur geweckt, wenn nötig. Wenn eine Aufgabe jedes Mal dein Urteil braucht (Briefings, Erinnerungen, Reports) – einfach nur Prompt, kein Script.

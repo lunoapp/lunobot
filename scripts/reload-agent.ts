@@ -41,13 +41,13 @@ export function buildClearMessage(
   messagingGroup: Pick<MessagingGroup, 'platform_id' | 'channel_type'> | undefined,
 ): {
   id: string;
-  kind: string;
+  kind: 'chat';
   timestamp: string;
   platformId: string | null;
   channelType: string | null;
   threadId: string | null;
   content: string;
-  trigger: 0 | 1;
+  trigger: boolean;
 } {
   return {
     id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -60,48 +60,47 @@ export function buildClearMessage(
     channelType: messagingGroup?.channel_type ?? null,
     threadId: session.thread_id,
     content: JSON.stringify({ text: '/clear' }),
-    trigger: 1,
+    trigger: true,
   };
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const name = process.argv[2];
   if (!name) {
     console.error('usage: pnpm exec tsx scripts/reload-agent.ts <agent-group-name>');
     process.exit(2);
   }
 
-  initDb(path.join(DATA_DIR, 'v2.db'));
+  await initDb(path.join(DATA_DIR, 'v2.db'));
 
-  const group = getAllAgentGroups().find((g) => g.name === name);
+  const groups = await getAllAgentGroups();
+  const group = groups.find((g) => g.name === name);
   if (!group) {
-    const known = getAllAgentGroups()
-      .map((g) => g.name)
-      .join(', ');
+    const known = groups.map((g) => g.name).join(', ');
     console.error(`No agent group named "${name}". Known groups: ${known || '(none)'}`);
     process.exit(1);
   }
 
-  const sessions = selectSessionsToClear(getActiveSessions(), group.id);
+  const sessions = selectSessionsToClear(await getActiveSessions(), group.id);
   if (sessions.length === 0) {
     console.log(`No active session for "${name}" — nothing to clear; the next message starts fresh anyway.`);
     return;
   }
 
   for (const session of sessions) {
-    const messagingGroup = session.messaging_group_id ? getMessagingGroup(session.messaging_group_id) : undefined;
+    const messagingGroup = session.messaging_group_id ? await getMessagingGroup(session.messaging_group_id) : undefined;
     if (!messagingGroup) {
       // Without an address the container's "Session cleared." goes nowhere, so
       // the operator would never learn the reload silently did half its job.
       console.error(`Session ${session.id} has no messaging group — skipped, clear it from the chat with /clear.`);
       continue;
     }
-    writeSessionMessage(group.id, session.id, buildClearMessage(session, messagingGroup));
+    await writeSessionMessage(group.id, session.id, buildClearMessage(session, messagingGroup));
     console.log(`Queued /clear for session ${session.id} (${name}).`);
   }
 }
 
 // Only run the CLI when invoked directly, so the tests can import the helpers.
 if (process.argv[1] && /reload-agent\.ts$/.test(process.argv[1])) {
-  main();
+  await main();
 }
