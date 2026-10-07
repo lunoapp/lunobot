@@ -32,6 +32,17 @@ PROJECT=nanoclaw-v2
 # sha1(project root)[:8]: the slug in the systemd unit name and in the
 # `nanoclaw-install` label every agent container carries.
 INSTALL_SLUG=1e478a5f
+GUARD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/clone-git-guard.sh"
+
+# Run commands as nanoclaw in ~/<repo> on the server. Every git call on the
+# server goes through here: the guard (clone-git-guard.sh, streamed ahead of
+# the commands) refuses a tampered .git and pins the settings that execute
+# programs, because the clones are agent-writable, .git included.
+in_clone() {
+  local repo="$1" commands="$2"
+  { cat "$GUARD"; printf 'guard_clone ~/%s && cd ~/%s && %s\n' "$repo" "$repo" "$commands"; } \
+    | ssh "$SERVER" "su - nanoclaw -s /bin/bash"
+}
 AGENT_GROUP=luno
 # Clones mounted into agent containers. A container has no SSH key, so the host
 # updates them here, where the deploy keys are. RESET_REPOS hold only data a run
@@ -74,10 +85,10 @@ if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
 fi
 
 echo "→ pulling on $SERVER"
-ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git pull --ff-only'"
+in_clone "$PROJECT" 'git pull --ff-only'
 
 # Before any clone is touched: a server on the wrong commit is not a deploy.
-SERVER_HEAD=$(ssh "$SERVER" "su - nanoclaw -c 'cd ~/$PROJECT && git rev-parse HEAD'" | tr -d '\r\n')
+SERVER_HEAD=$(in_clone "$PROJECT" 'git rev-parse HEAD' | tr -d '\r\n')
 if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then
   echo "Server is on $SERVER_HEAD, expected $LOCAL_HEAD — deploy aborted before touching clones or sessions." >&2
   exit 1
@@ -116,7 +127,7 @@ fi
 # that carries the fix. Untracked output stays unless upstream adds the same path.
 for repo in "${RESET_REPOS[@]}"; do
   echo "→ resetting $repo on $SERVER to origin/main"
-  ssh -n "$SERVER" "su - nanoclaw -c 'cd ~/$repo && git fetch --quiet origin main && git reset --hard --quiet origin/main'" \
+  in_clone "$repo" 'git fetch --quiet origin main && git reset --hard --quiet origin/main' \
     || FAILED_REPOS+=("$repo")
 done
 # --no-overwrite-ignore: a fast-forward otherwise replaces an ignored file an
@@ -124,11 +135,11 @@ done
 # fast-forward from landing on whatever branch an agent left checked out.
 for repo in "${FF_REPOS[@]}"; do
   echo "→ fast-forwarding $repo on $SERVER"
-  if ! ssh -n "$SERVER" "su - nanoclaw -c 'cd ~/$repo && git symbolic-ref --short HEAD | grep -qx main && git fetch --quiet origin main && git merge --ff-only --no-overwrite-ignore --quiet origin/main'"; then
+  if ! in_clone "$repo" 'git symbolic-ref --short HEAD | grep -qx main && git fetch --quiet origin main && git merge --ff-only --no-overwrite-ignore --quiet origin/main'; then
     FAILED_REPOS+=("$repo")
     continue
   fi
-  if ! LOCAL_WORK=$(ssh -n "$SERVER" "su - nanoclaw -c 'cd ~/$repo && git status --porcelain && git log --oneline origin/main..HEAD'"); then
+  if ! LOCAL_WORK=$(in_clone "$repo" 'git status --porcelain && git log --oneline origin/main..HEAD'); then
     KEPT_WORK_REPOS+=("$repo (state unreadable)")
   elif [ -n "$LOCAL_WORK" ]; then
     KEPT_WORK_REPOS+=("$repo")
