@@ -4,10 +4,10 @@
  * Usage (on the server, as the nanoclaw user):
  *   pnpm exec tsx scripts/reload-agent.ts <agent-group-name>
  *
- * Why this exists: `groups/<folder>/CLAUDE.md` is a list of imports whose skill
- * fragments are symlinks into the read-only `/app/skills` mount, so a `git pull`
- * already changes what the next query reads from disk. What does NOT change is
- * the conversation the agent is in the middle of — it keeps answering from the
+ * Why this exists: `groups/<folder>/CLAUDE.md` is composed from the files on
+ * disk at every container start, so a `git pull` plus a container stop puts an
+ * edited rule in force. What does NOT change is the conversation the agent is
+ * in the middle of — it keeps answering from the
  * rules that were in context when the session started. `/clear` drops that
  * continuation, which is why it is the documented way to make an edit visible
  * (docs/claude-md-composition.md, "Reload semantics").

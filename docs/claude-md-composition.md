@@ -1,55 +1,63 @@
 # CLAUDE.md composition — which rule layer wins
 
-`src/claude-md-compose.ts` regenerates `groups/<folder>/CLAUDE.md` on **every**
-spawn, from `container-runner.buildMounts()`. The file is a list of imports and
-nothing else; it carries the header `<!-- Composed at spawn — do not edit. Edit
-CLAUDE.local.md for per-group content. -->` because editing it is pointless — the
-next spawn overwrites it.
+`src/project-doc-compose.ts` regenerates `groups/<folder>/CLAUDE.md` on **every**
+container start, from `container-runner.buildMounts()`. It is one flat file:
+every source is read on the host and inlined as a `# <name>` section, nothing is
+an `@` import. The first line is the marker `<!-- Composed at spawn - do not
+edit. … -->`; editing the file is pointless, the next spawn overwrites it.
 
 ## The layers
 
-In the order they are imported:
+In the order they appear in the file:
 
-| Layer | Source | Scope |
+| Section | Source | Scope |
 |---|---|---|
-| Shared base | `container/CLAUDE.md`, mounted RO at `/app/CLAUDE.md` | every group |
-| Skill fragments | `container/skills/<name>/instructions.md` | groups that select the skill (every group on `"skills": "all"`) |
-| Module fragments | `container/agent-runner/src/mcp-tools/<name>.instructions.md` | every group, not toggleable |
-| MCP server fragments | inline `instructions` field in `groups/<folder>/container.json` | that group |
-| Per-group memory | `groups/<folder>/CLAUDE.local.md` | that group — auto-loaded by Claude Code, not imported by the composed file |
+| `Persona` | `groups/<folder>/instructions.prepend.md` | that group — standing role and behaviour |
+| `NanoClaw Runtime Contract` | `container/CLAUDE.md` | every group |
+| `NanoClaw Module: <name>` | `container/agent-runner/src/mcp-tools/<name>.instructions.md` | every group; `cli` and `scheduling` drop out when the group's `cli_scope` is `disabled` |
+| `NanoClaw Skill: <name>` | `container/skills/<name>/instructions.md` | groups that select the skill (every group on `"skills": "all"`) |
+| `MCP Server: <name>` | inline `instructions` of an MCP server in the group's container config | that group |
 
-`CLAUDE.local.md` lives on the server only and is not in the repo. The composed
-`CLAUDE.md` next to it is generated; `.claude-fragments/` beside it holds the
-symlinks and is reconciled on each spawn (stale fragments are pruned).
+Durable facts are not a layer of this file. They live in the group's memory tree,
+`groups/<folder>/memory/` (mounted at `/workspace/agent/memory/`), which the
+runtime loads on its own; see `docs/memory.md`. `instructions.prepend.md` and
+`memory/` live on the server only and are not in the repo.
 
-Skill fragments follow the group's `container.json` skill selection, the same
-one that decides which skills are mounted. A group on `"skills": "all"` gets
+Skill sections follow the group's skill selection, the same one that decides
+which skills are linked into the container. A group on `"skills": "all"` gets
 every skill that ships an `instructions.md`, so adding one to a skill changes the
-prompt of every such group. A group with an explicit list gets only the
-fragments of the skills it names — which is how `telegram_prema` stays out of
-the Lunobot persona.
+prompt of every such group. A group with an explicit list gets only the skills
+it names — which is how `telegram_prema` stays out of the Lunobot persona. The
+selected credential gateway adds its own agent skill (`onecli-gateway`).
+
+The file has a size cap. Over it, the largest module, skill and MCP sections are
+dropped first and an `Omitted for size` section names them; persona and runtime
+contract are never dropped.
 
 ## Reload semantics
 
-Editing a skill's `instructions.md` or a group's `CLAUDE.local.md` needs a
-`git pull` on the server — no build, no image rebuild, no service restart. The
-composed `CLAUDE.md` imports its fragments as symlinks into the read-only
-`/app/skills` mount, so the pull alone already changes what the next query reads
-from disk.
+Editing a skill's `instructions.md`, `container/CLAUDE.md` or a group's
+`instructions.prepend.md` needs a `git pull` (or, for the server-only file, the
+edit itself) — no build, no image rebuild, no service restart. Because every
+source is inlined at spawn, the change reaches an agent when its container next
+starts, not before.
 
-What the pull does not change is the conversation the agent is in the middle of.
-It keeps answering from the rules that were in context when its session started,
-which is why an edit that is correct on disk still produces the old behaviour in
-chat — the reported symptom is always "I changed it and the bot quotes the old
-rule".
+What a new file on disk does not change is the conversation the agent is in the
+middle of. It keeps answering from the rules that were in context when its
+session started, which is why an edit that is correct on disk still produces the
+old behaviour in chat — the reported symptom is always "I changed it and the bot
+quotes the old rule".
 
 Two things end that continuation, and they cost different amounts. **Stopping the
-container** makes the next message spawn a fresh one, which builds its system
-prompt from the files on disk: the edited rule is then in force, and the
-conversation is kept. **Clearing** additionally drops the transcript, which is
-what it takes when the running thread itself carries the old rule — quoted back,
-already acted on, a habit formed under it. That costs the person in that chat
-their context, and there is no way to keep both.
+container** makes the next message spawn a fresh one, which composes its document
+from the files on disk: the edited rule is then in force, and the conversation is
+kept. **Clearing** additionally drops the transcript, which is what it takes when
+the running thread itself carries the old rule — quoted back, already acted on, a
+habit formed under it. That costs the person in that chat their context, and
+there is no way to keep both.
+
+Scheduled tasks are not affected by either: each task series runs in its own
+session, which starts from the composed document and no chat history.
 
 **Deploy an instruction change with `scripts/deploy-lunobot.sh`.** It pulls on the
 server; `--restart` adds the container stop, which a changed file *set* needs (a
@@ -62,15 +70,15 @@ the default. It also updates the clones mounted into containers; exit 1 with
 
 `container/skills/lunobot-persona/instructions.md` is the single source of truth for
 lunobot's language (German unless asked otherwise), German typography, and
-per-channel formatting. Because it is a skill fragment it lands in every group's
-composed `CLAUDE.md`, and in practice it dominates whatever a per-group
-`CLAUDE.local.md` says about the same subject.
+per-channel formatting. It lands as a skill section in the composed `CLAUDE.md` of every
+group that selects it, and in practice it dominates whatever a group's
+`instructions.prepend.md` says about the same subject.
 
 **When lunobot ignores a formatting, style or language rule, read the persona
 skill first** — a stale instruction there silently beats a correct one anywhere
 else, and the symptom looks like a broken converter rather than a wrong prompt.
 Formatting rules therefore live in the persona and nowhere else; a copy in
-`container/CLAUDE.md` or a group's `CLAUDE.local.md` is a bug, not redundancy.
+`container/CLAUDE.md` or a group's `instructions.prepend.md` is a bug, not redundancy.
 
 Two rules follow from that:
 
