@@ -81,15 +81,29 @@ done
 git checkout main
 git push origin main
 
-# 8. Deploy to server
-ssh luno "su - nanoclaw -c 'export PATH=\$HOME/.local/bin:\$PATH && cd ~/nanoclaw-v2 && git pull && pnpm install --frozen-lockfile && pnpm run build && bash container/build.sh'"
-ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw -c 'systemctl --user restart nanoclaw-v2-1e478a5f'"
+# 8. Deploy to server — service stopped for the whole sequence, as nanoclaw in ~/nanoclaw-v2
+#    a. back up data/, groups/, .env and the current HEAD (cp -a … ~/nanoclaw-v2-<what>.bak-<date>)
+#    b. systemctl --user stop nanoclaw-v2-1e478a5f
+#    c. git pull && pnpm install --frozen-lockfile && pnpm run build
+#    d. bash container/build.sh
+#    e. pnpm run migrate                      # central DB schema
+#    f. new .env variables the merge introduced (compare .env.example), names only in any output
+#    g. chmod 600 data/v2.db .env
+#    h. pnpm exec tsx scripts/upgrade-state.ts set
+#    i. systemctl --user start nanoclaw-v2-1e478a5f
+#
+# Never run the add-onecli setup on this install: the gateway is already registered.
+# Its --reuse mode copies the onecli CLI's api-host into .env as ONECLI_URL; if that
+# host is the cloud default (https://api.onecli.sh), every agent spawn fails with 401
+# and the bot goes silent. ONECLI_URL must stay http://127.0.0.1:10254.
 
 # 9. Verify
 ssh luno "tail -20 /home/nanoclaw/nanoclaw-v2/logs/nanoclaw.log"
+ssh luno "grep -c '^ONECLI_URL=http://127.0.0.1:10254$' /home/nanoclaw/nanoclaw-v2/.env"   # must print 1
 # The central DB holds credentials (the Supabase token in container_configs) — must print 600:
-ssh luno "stat -c '%a' /home/nanoclaw/nanoclaw-v2/data/v2.db"   # fix: chmod 600 …/data/v2.db
-# Send a Telegram test message — text, voice, photo — confirm responses.
+ssh luno "stat -c '%a' /home/nanoclaw/nanoclaw-v2/data/v2.db"
+# Send a Telegram test message — text, voice, photo — and wait for the reply.
+# A reply proves the gateway works; a clean log line does not.
 ```
 
 ## Operating the running service
