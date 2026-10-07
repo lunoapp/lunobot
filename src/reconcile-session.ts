@@ -36,12 +36,7 @@ import { getSession, isTaskThread, updateSession } from './db/sessions.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { log } from './log.js';
 import { heartbeatPath, withExistingMailboxSession } from './session-manager.js';
-import {
-  getContainerMaxLifetimeMs,
-  getContainerStartedAtMs,
-  isContainerRunning,
-  killContainer,
-} from './container-runner.js';
+import { getContainerStartedAtMs, isContainerRunning, killContainer } from './container-runner.js';
 import { requestWake } from './request-wake.js';
 import type { Session } from './types.js';
 import type { ContainerState, InboundMailbox, OutboundMailbox } from './mailbox/index.js';
@@ -59,8 +54,6 @@ const BACKOFF_BASE_MS = 5000;
 export type StuckDecision =
   | { action: 'ok' }
   | { action: 'kill-ceiling'; heartbeatAgeMs: number; ceilingMs: number }
-  // skill/github-app
-  | { action: 'kill-lifetime'; ageMs: number; maxLifetimeMs: number }
   | { action: 'kill-claim'; messageId: string; claimAgeMs: number; toleranceMs: number };
 
 /**
@@ -74,15 +67,8 @@ export function decideStuckAction(args: {
   containerStartedAtMs?: number; // fallback when heartbeat file absent
   containerState: ContainerState | null;
   claims: Array<{ messageId: string; statusChanged: string }>;
-  /**
-   * skill/github-app — retire the container once it is this old, between
-   * turns. Set for containers holding a GitHub App installation token, which
-   * expires after an hour; the idle ceiling alone lets a busy container
-   * outlive it.
-   */
-  maxLifetimeMs?: number;
 }): StuckDecision {
-  const { now, heartbeatMtimeMs, containerStartedAtMs, containerState, claims, maxLifetimeMs } = args;
+  const { now, heartbeatMtimeMs, containerStartedAtMs, containerState, claims } = args;
   const declaredBashMs = bashTimeoutMs(containerState);
 
   // Ceiling check prefers the heartbeat file's mtime. A freshly-spawned
@@ -108,13 +94,6 @@ export function decideStuckAction(args: {
     if (heartbeatAge > ceiling) {
       return { action: 'kill-ceiling', heartbeatAgeMs: heartbeatAge, ceilingMs: ceiling };
     }
-  }
-
-  // skill/github-app — only with nothing in flight: a turn is never cut short
-  // for this; the next sweep after it finishes retires the container.
-  if (maxLifetimeMs !== undefined && containerStartedAtMs !== undefined && claims.length === 0) {
-    const age = now - containerStartedAtMs;
-    if (age > maxLifetimeMs) return { action: 'kill-lifetime', ageMs: age, maxLifetimeMs };
   }
 
   const tolerance = Math.max(CLAIM_STUCK_MS, declaredBashMs ?? 0);
@@ -275,8 +254,6 @@ async function enforceRunningContainerSla(
     containerStartedAtMs: getContainerStartedAtMs(session.id),
     containerState: outDb.getContainerState(),
     claims: gatedClaims,
-    // skill/github-app
-    maxLifetimeMs: getContainerMaxLifetimeMs(session.id),
   });
 
   if (decision.action === 'ok') return;
@@ -289,18 +266,6 @@ async function enforceRunningContainerSla(
     });
     killContainer(session.id, 'absolute-ceiling');
     resetStuckProcessingRows(inDb, outDb, session, 'absolute-ceiling');
-    return;
-  }
-
-  // skill/github-app — nothing is in flight, so there is nothing to reset;
-  // the next inbound message spawns a container with a fresh token.
-  if (decision.action === 'kill-lifetime') {
-    log.info('Retiring container before its GitHub token expires', {
-      sessionId: session.id,
-      ageMs: decision.ageMs,
-      maxLifetimeMs: decision.maxLifetimeMs,
-    });
-    killContainer(session.id, 'token-lifetime');
     return;
   }
 

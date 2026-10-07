@@ -30,7 +30,7 @@ import { updateContainerConfigScalars } from './db/container-configs.js';
 // skill/image-self-heal
 import { CONTAINER_RUNTIME_BIN, ensureAgentImage } from './container-runtime.js';
 // skill/github-app
-import { githubTokenEnv, githubTokenLifetimeCap } from './github-app-token.js';
+import { githubTokenEnv } from './github-app-token.js';
 import { composeGroupProjectDoc, DEFAULT_PROJECT_DOC } from './project-doc-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import {
@@ -137,8 +137,6 @@ interface ActiveSessionRuntime {
   claimIncarnation?: number;
   /** A deferred fenced finalization is already queued for this runtime. */
   deferredFinishScheduled?: boolean;
-  /** skill/github-app — retire between turns once this old (see github-app-token.ts). */
-  maxLifetimeMs?: number;
 }
 
 const activeContainers = new Map<string, ActiveSessionRuntime>();
@@ -222,11 +220,6 @@ export function isContainerRunning(sessionId: string): boolean {
 
 export function getContainerStartedAtMs(sessionId: string): number | undefined {
   return activeContainers.get(sessionId)?.startedAtMs;
-}
-
-/** skill/github-app */
-export function getContainerMaxLifetimeMs(sessionId: string): number | undefined {
-  return activeContainers.get(sessionId)?.maxLifetimeMs;
 }
 
 /** Stop host-local observation without revoking resources that may survive restart. */
@@ -313,11 +306,6 @@ async function retryPendingAdoption(session: Session): Promise<boolean> {
   }
   const runtime = registerRuntime(session.id, snapshot.handle, gatewaySession, snapshot.handle.name, true);
   runtime.claimIncarnation = claimIncarnation;
-  // skill/github-app
-  runtime.maxLifetimeMs = githubTokenLifetimeCap({
-    adopted: true,
-    sessDir: sessionDir(session.agent_group_id, session.id),
-  });
   runtime.stopReason = undefined;
   snapshot.handle.onTerminal((failure) => {
     void finishAndResolve(session.id, runtime, failure);
@@ -485,12 +473,6 @@ async function spawnContainer(session: Session): Promise<void> {
   }
   const runtime = registerRuntime(session.id, handle, gatewaySession, containerName, false);
   runtime.claimIncarnation = claimIncarnation;
-  // skill/github-app
-  runtime.maxLifetimeMs = githubTokenLifetimeCap({
-    adopted: false,
-    env: spec.containers.find((c) => c.role === 'agent')?.env,
-    sessDir: sessionDir(agentGroup.id, session.id),
-  });
 
   await armSessionLifecycle({
     handle,
@@ -886,11 +868,6 @@ export async function adoptRunningSessions(): Promise<{ adopted: number; stopped
     }
     const runtime = registerRuntime(session.id, handle, gatewaySession, handle.name, true);
     runtime.claimIncarnation = claimIncarnation;
-    // skill/github-app
-    runtime.maxLifetimeMs = githubTokenLifetimeCap({
-      adopted: true,
-      sessDir: sessionDir(session.agent_group_id, session.id),
-    });
     runtime.stopReason = undefined;
     handle.onTerminal((failure) => {
       void finishAndResolve(session.id, runtime, failure);
