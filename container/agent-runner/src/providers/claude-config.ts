@@ -25,6 +25,9 @@ import type { McpServerConfig } from './types.js';
 //   mcp__nanoclaw__create_agent reaches for it and gets "No agent named 'x'
 //   is currently addressable". mcp__nanoclaw__send_message is the real
 //   agent-to-agent path (it resolves the destination map in inbound.db).
+// - ListAgents: lists Claude Code's in-session agents — the read side of the
+//   same trap. Asked whom it can message, the agent would answer from it
+//   instead of from its NanoClaw destinations.
 // - EnterPlanMode / ExitPlanMode / EnterWorktree / ExitWorktree: Claude
 //   Code UI affordances; in a headless container they'd appear stuck.
 // - DesignSync: desktop design-tool integration — nothing to sync with in a
@@ -38,6 +41,7 @@ export const SDK_DISALLOWED_TOOLS = [
   'ScheduleWakeup',
   'AskUserQuestion',
   'SendMessage',
+  'ListAgents',
   'EnterPlanMode',
   'ExitPlanMode',
   'EnterWorktree',
