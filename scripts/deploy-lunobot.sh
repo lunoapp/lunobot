@@ -2,16 +2,17 @@
 #
 # Deploy an instruction change to the running bot, from a workstation.
 #
-#   scripts/deploy-lunobot.sh            # persona / skill text edits
-#   scripts/deploy-lunobot.sh --restart  # also needed when the set of files changed
-#                                     # (new skill directory, container.json, .env)
+#   scripts/deploy-lunobot.sh            # pull, stop agent containers, update clones
+#   scripts/deploy-lunobot.sh --restart  # accepted for compatibility; the stop is
+#                                        # part of every deploy
 #   scripts/deploy-lunobot.sh --clear    # additionally wipe the group's conversation
 #
 # Four steps, and skipping the first is why "I changed it and the bot still
 # says the old thing" keeps happening:
 #   1. the server pulls          — without it the file on the server is old
-#   2. containers stop           — only when the file SET changed; fragment
-#                                  contents are live through the read-only mount
+#   2. containers stop           — always: the clones they mount read-write
+#                                  are about to change under them, and a fresh
+#                                  container composes its prompt from the new files
 #   3. mounted clones update     — social is reset, luno and premarising are
 #                                  fast-forwarded
 #   4. the session is cleared    — only when the running conversation itself is
@@ -85,7 +86,7 @@ if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
 fi
 
 echo "→ pulling on $SERVER"
-in_clone "$PROJECT" 'git pull --ff-only'
+in_clone "$PROJECT" 'fetch_main && git merge --ff-only --quiet origin/main'
 
 # Before any clone is touched: a server on the wrong commit is not a deploy.
 SERVER_HEAD=$(in_clone "$PROJECT" 'git rev-parse HEAD' | tr -d '\r\n')
@@ -94,7 +95,9 @@ if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then
   exit 1
 fi
 
-if [ "$RESTART" = "1" ]; then
+# Always, before the clones: an agent writing into a clone while git updates
+# it races the update. A stopped container respawns on the next message.
+{
   # Docker runs as root here, as in docs/FORK-MAINTENANCE.md. Listing and
   # stopping stay separate calls: in a `ps | xargs stop` pipeline a failing
   # `docker ps` leaves xargs nothing to do and the whole thing exits 0, so a
@@ -113,11 +116,10 @@ if [ "$RESTART" = "1" ]; then
   else
     echo "   none running"
   fi
-fi
+}
 
-# Clones come after the stop, so with --restart no agent that was running is
-# still writing into one; a message arriving in between can spawn a new one.
-# Without --restart a running agent can race git here.
+# Clones come after the stop, so no agent that was running is still writing
+# into one; a message arriving in between can spawn a new one.
 #
 # A failing clone is reported, not fatal: the bot is already pulled, and the
 # steps around it must still run.
@@ -127,7 +129,7 @@ fi
 # that carries the fix. Untracked output stays unless upstream adds the same path.
 for repo in "${RESET_REPOS[@]}"; do
   echo "→ resetting $repo on $SERVER to origin/main"
-  in_clone "$repo" 'git fetch --quiet origin main && git reset --hard --quiet origin/main' \
+  in_clone "$repo" 'fetch_main && git reset --hard --quiet origin/main' \
     || FAILED_REPOS+=("$repo")
 done
 # --no-overwrite-ignore: a fast-forward otherwise replaces an ignored file an
@@ -135,11 +137,11 @@ done
 # fast-forward from landing on whatever branch an agent left checked out.
 for repo in "${FF_REPOS[@]}"; do
   echo "→ fast-forwarding $repo on $SERVER"
-  if ! in_clone "$repo" 'git symbolic-ref --short HEAD | grep -qx main && git fetch --quiet origin main && git merge --ff-only --no-overwrite-ignore --quiet origin/main'; then
+  if ! in_clone "$repo" 'git symbolic-ref --short HEAD | grep -qx main && fetch_main && git merge --ff-only --no-overwrite-ignore --quiet origin/main'; then
     FAILED_REPOS+=("$repo")
     continue
   fi
-  if ! LOCAL_WORK=$(in_clone "$repo" 'git status --porcelain && git log --oneline origin/main..HEAD'); then
+  if ! LOCAL_WORK=$(in_clone "$repo" 'git status --porcelain --ignore-submodules=all && git log --oneline origin/main..HEAD'); then
     KEPT_WORK_REPOS+=("$repo (state unreadable)")
   elif [ -n "$LOCAL_WORK" ]; then
     KEPT_WORK_REPOS+=("$repo")
@@ -166,12 +168,9 @@ DONE="Done."
 if [ "${#FAILED_REPOS[@]}" -gt 0 ]; then
   DONE="Bot deployed, clones not (see below)."
 fi
-if [ "$RESTART" = "1" ] || [ "$CLEAR" = "1" ]; then
-  echo "$DONE The bot answers the next message with the edited instructions."
-else
-  echo "$DONE The bot files on the server are current — but a session already running"
-  echo "keeps the rules it started with. Add --restart so the next message spawns"
-  echo "a fresh container."
+echo "$DONE The bot answers the next message with the edited instructions."
+if [ "$RESTART" = "1" ]; then
+  echo "(--restart is implied now: every deploy stops the agent containers.)"
 fi
 if [ "$CLEAR" = "0" ]; then
   echo "The $AGENT_GROUP conversation is untouched. Add --clear when the running"

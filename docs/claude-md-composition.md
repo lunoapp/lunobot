@@ -60,10 +60,8 @@ Scheduled tasks are not affected by either: each task series runs in its own
 session, which starts from the composed document and no chat history.
 
 **Deploy an instruction change with `scripts/deploy-lunobot.sh`.** It pulls on the
-server; `--restart` adds the container stop, which a changed file *set* needs (a
-new skill directory, `container.json`, `.env`) and which is also what puts an
-edited rule in force; `--clear` wipes the conversation and is deliberately not
-the default. It also updates the clones mounted into containers; exit 1 with
+server and stops the agent containers, which is what puts an edited rule in
+force; `--clear` wipes the conversation and is deliberately not the default. It also updates the clones mounted into containers; exit 1 with
 "Not updated on …" means the bot is deployed and a clone is not.
 
 ## Style, formatting and language: the persona wins
