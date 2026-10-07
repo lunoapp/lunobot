@@ -286,19 +286,10 @@ function originAttr(msg: MessageInRow): string {
   return '';
 }
 
-/**
- * SQLite's datetime('now') is UTC without a zone marker, and the host writes it
- * into timestamp and, on retry, process_after. new Date() would read it as
- * container-local time. Same rule as parseSqliteUtc in src/host-sweep.ts.
- */
-function asUtcIso(s: string): string {
-  return /[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : s.replace(' ', 'T') + 'Z';
-}
-
 function formatTaskMessage(msg: MessageInRow): string {
   const content = parseContent(msg.content);
   const from = originAttr(msg);
-  const time = formatLocalTime(asUtcIso(msg.process_after ?? msg.timestamp), TIMEZONE);
+  const time = formatLocalTime(msg.process_after ?? msg.timestamp, TIMEZONE);
   const currentTime = new Date().toLocaleString('en-US', {
     timeZone: TIMEZONE,
     dateStyle: 'full',

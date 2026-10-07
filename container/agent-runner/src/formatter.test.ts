@@ -191,13 +191,23 @@ describe('task timestamps', () => {
     expect(result).toMatch(/current_time="(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), [^"]+"/);
   });
 
-  // The host's retry path writes process_after with SQLite's datetime('now'),
-  // which is UTC without a zone marker. Read naively it shifts by the
-  // container's UTC offset; this only fails when run with a non-UTC TZ.
+  // Rows written before the host switched to ISO timestamps carry SQLite's
+  // datetime('now') format: UTC without a zone marker. The mailbox read
+  // normalizes them (sqliteTimestamp, mailbox/sqlite/operations.ts); read
+  // naively they would shift by the process's UTC offset. The case pins a
+  // non-UTC zone — under TZ=UTC it would pass with or without that step.
   it('reads a zone-less SQLite process_after as UTC', () => {
-    insertMessage('t1', 'task', { prompt: 'retry' }, { processAfter: '2026-01-05 12:00:00' });
-    const result = formatMessages(getPendingMessages());
-    expect(result).toContain(`time="${formatLocalTime('2026-01-05T12:00:00.000Z', TIMEZONE)}"`);
+    const tz = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      expect(new Date('2026-01-05T12:00:00').getTime()).not.toBe(Date.parse('2026-01-05T12:00:00Z'));
+      insertMessage('t1', 'task', { prompt: 'retry' }, { processAfter: '2026-01-05 12:00:00' });
+      const result = formatMessages(getPendingMessages());
+      expect(result).toContain(`time="${formatLocalTime('2026-01-05T12:00:00.000Z', TIMEZONE)}"`);
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
   });
 });
 
