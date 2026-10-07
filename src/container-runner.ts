@@ -475,7 +475,7 @@ async function spawnContainer(session: Session): Promise<void> {
     // skill/image-self-heal — rebuild the default agent image if something
     // (Coolify's buggy cleanup) deleted it, instead of failing every spawn.
     if (spec.containers.some((c) => c.role === 'agent' && c.image === CONTAINER_IMAGE)) {
-      ensureAgentImage(CONTAINER_IMAGE);
+      await ensureAgentImage(CONTAINER_IMAGE);
     }
     handle = await driver.prepare(spec);
   } catch (err) {
