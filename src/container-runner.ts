@@ -31,6 +31,7 @@ import { updateContainerConfigScalars } from './db/container-configs.js';
 import { CONTAINER_RUNTIME_BIN, ensureAgentImage } from './container-runtime.js';
 // skill/github-app
 import { githubTokenEnv } from './github-app-token.js';
+import { enqueueSessionReconcile } from './reconcile-feeds.js';
 import { composeGroupProjectDoc, DEFAULT_PROJECT_DOC } from './project-doc-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import {
@@ -762,6 +763,11 @@ async function finish(sessionId: string, runtime: ActiveSessionRuntime, failure?
       log.error('Container exit callback failed', { sessionId, containerName, err });
     }
   }
+  // Messages a container left pending when it ended (the runner retiring for
+  // a fresh GitHub token does exactly that) would otherwise wait for the next
+  // periodic sweep. Reconcile is level-triggered: it wakes only when something
+  // is due and no container runs, so an ordinary end costs one no-op re-read.
+  enqueueSessionReconcile(sessionId);
 }
 
 /** Kill a container for a session. */
