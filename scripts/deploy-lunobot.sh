@@ -150,9 +150,10 @@ fi
 # A failing clone is reported, not fatal: the bot is already pulled, and the
 # steps around it must still run.
 #
-# Reset for social: a run rewrites src/data/availability.json on every batch, so
-# the clone is always dirty and a fast-forward would fail on exactly the deploy
-# that carries the fix. Untracked output stays unless upstream adds the same path.
+# Reset for social: an agent can leave edits to tracked files that it has no key
+# to push, and a fast-forward would fail on exactly the deploy that carries the
+# fix. Ignored files — the fetched data stand, listing photos, rendered output —
+# survive the reset; untracked ones too, unless upstream adds the same path.
 for repo in "${RESET_REPOS[@]}"; do
   echo "→ resetting $repo on $SERVER to origin/main"
   in_clone "$repo" 'fetch_main && git reset --hard --quiet origin/main' \
