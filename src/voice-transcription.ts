@@ -10,7 +10,9 @@
  *   host run whisper. Per-agent engage and access gates run later, inside the
  *   router, and are not repeated here.
  * - One transcription at a time across all chats: whisper is CPU-bound and
- *   shares the host with every agent container.
+ *   shares the host with every agent container. At most
+ *   MAX_PENDING_TRANSCRIPTIONS wait or run; beyond that the fallback text goes
+ *   out at once.
  * - Order within a chat is kept. A message from a chat with a transcription in
  *   flight waits for it, so a text sent after a voice note never overtakes it.
  *   Other chats are not held up.
@@ -21,6 +23,14 @@ import type { ChannelSetup, InboundMessage } from './channels/adapter.js';
 import { log } from './log.js';
 
 export const VOICE_FALLBACK_TEXT = '[Voice message — transcription unavailable]';
+
+/**
+ * Transcriptions waiting or running, host-wide. Beyond this a voice message is
+ * delivered with the fallback text at once: a burst must not queue minutes of
+ * whisper work ahead of every chat that sends one.
+ */
+export const MAX_PENDING_TRANSCRIPTIONS = 5;
+let pendingTranscriptions = 0;
 
 export interface VoiceTranscriberDeps {
   /** Transcript, or null when transcription failed. */
@@ -57,10 +67,17 @@ async function withTranscript(message: InboundMessage, deps: VoiceTranscriberDep
   if (!(await deps.isWired(platformId))) return;
 
   let transcript: string | null = null;
-  try {
-    transcript = await exclusively(() => deps.transcribe(audio));
-  } catch (err) {
-    log.warn('Voice transcription failed — delivering with fallback text', { err });
+  if (pendingTranscriptions >= MAX_PENDING_TRANSCRIPTIONS) {
+    log.warn('Voice transcription queue full — delivering with fallback text', { pending: pendingTranscriptions });
+  } else {
+    pendingTranscriptions++;
+    try {
+      transcript = await exclusively(() => deps.transcribe(audio));
+    } catch (err) {
+      log.warn('Voice transcription failed — delivering with fallback text', { err });
+    } finally {
+      pendingTranscriptions--;
+    }
   }
   const content = message.content as Record<string, unknown>;
   const original = typeof content.text === 'string' ? content.text : '';

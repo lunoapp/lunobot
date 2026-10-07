@@ -9,7 +9,7 @@ vi.mock('./log.js', () => ({
 }));
 
 import type { InboundMessage } from './channels/adapter.js';
-import { createVoiceInterceptor, VOICE_FALLBACK_TEXT } from './voice-transcription.js';
+import { createVoiceInterceptor, MAX_PENDING_TRANSCRIPTIONS, VOICE_FALLBACK_TEXT } from './voice-transcription.js';
 
 function chatMessage(text: string, attachments: Array<Record<string, unknown>> = []): InboundMessage {
   return { id: `m-${text}`, kind: 'chat-sdk', timestamp: new Date().toISOString(), content: { text, attachments } };
@@ -117,5 +117,25 @@ describe('createVoiceInterceptor', () => {
       onInbound('tg:3', null, voice()),
     ]);
     expect(peak).toBe(1);
+  });
+
+  it('beyond the pending cap delivers the fallback at once, keeping chat order', async () => {
+    const gate = deferred<string | null>();
+    const { onInbound, delivered, transcribe } = setup({ transcribe: () => gate.promise });
+    const chats = Array.from({ length: MAX_PENDING_TRANSCRIPTIONS + 2 }, (_, i) => `tg:${i}`);
+    const runs = chats.map((chat) => onInbound(chat, null, voice()));
+    // The same chat's later text still waits behind its own (fallback) voice.
+    const lastChat = chats[chats.length - 1];
+    const after = onInbound(lastChat, null, chatMessage('after'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Only the overflow went through, without waiting for whisper.
+    expect(delivered.map((d) => d.platformId)).toEqual([chats[chats.length - 2], lastChat, lastChat]);
+    expect(delivered.map((d) => d.text)).toEqual([VOICE_FALLBACK_TEXT, VOICE_FALLBACK_TEXT, 'after']);
+
+    gate.resolve('ok');
+    await Promise.all([...runs, after]);
+    expect(transcribe).toHaveBeenCalledTimes(MAX_PENDING_TRANSCRIPTIONS);
+    expect(delivered.filter((d) => d.text === '[Voice transcript] ok')).toHaveLength(MAX_PENDING_TRANSCRIPTIONS);
   });
 });
