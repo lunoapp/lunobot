@@ -28,18 +28,22 @@ const HEADING_PATTERN = /^[ \t]*#{1,6}[ \t]+(.+?)[ \t]*$/gm;
 const BULLET_LINE_PATTERN = /^([ \t]*)•[ \t]+/gm;
 // At most three spaces: four make an indented code block, where "\#" would show.
 const LINE_HASHTAG_PATTERN = /^( {0,3})#(?=[^\s#])/gm;
+// Code placeholders are wrapped in a private-use character: it has no place in
+// chat text, and unlike a control character it is legal in a regex literal.
+const MASK = '\uE000';
+const MASK_PATTERN = /\uE000(\d+)\uE000/g;
 
 export function normalizeTelegramOutbound(text: string): string {
   if (!text) return text;
 
   // Mask code spans/blocks once so no rule rewrites code.
   const code: string[] = [];
-  let out = text.replace(CODE_PATTERN, (m) => `\x00${code.push(m) - 1}\x00`);
+  let out = text.replace(CODE_PATTERN, (m) => `${MASK}${code.push(m) - 1}${MASK}`);
 
   out = out.replace(/—/g, '–'); // 1. em-dash → en-dash
   out = out.replace(HEADING_PATTERN, '**$1**'); // 2. heading → bold
   out = out.replace(BULLET_LINE_PATTERN, '$1- '); // 3. "•" → Markdown list item
   out = out.replace(LINE_HASHTAG_PATTERN, '$1\\#'); // 4. hashtag at line start → escaped
 
-  return out.replace(/\x00(\d+)\x00/g, (_, i) => code[Number(i)]);
+  return out.replace(MASK_PATTERN, (_, i: string) => code[Number(i)]);
 }
