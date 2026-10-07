@@ -102,6 +102,23 @@ describe('clone-git-guard.sh', () => {
     expect(fs.existsSync(f.marker)).toBe(false);
   });
 
+  it('accepts exactly the GitHub host aliases and owners the server uses', () => {
+    for (const url of [
+      'git@github.com:lunoapp/social.git',
+      'git@github-luno:lunoapp/luno.git',
+      'git@github-prema:Prema-Rising/premarising.com',
+      'ssh://git@github-luno/lunoapp/luno.git',
+      'ssh://git@github.com/Prema-Rising/premarising.com',
+    ]) {
+      const f = cloneFixture();
+      git(f.clone, 'config', 'remote.origin.url', url);
+      // The fake ssh serves any host, so a match fetches successfully.
+      const res = runGuarded(f, 'fetch_main');
+      expect(res.stderr, url).toBe('');
+      expect(res.status, url).toBe(0);
+    }
+  });
+
   it('refuses to fetch from an origin that is not an expected ssh GitHub URL', () => {
     for (const url of [
       '/tmp/elsewhere',
@@ -109,6 +126,10 @@ describe('clone-git-guard.sh', () => {
       'ext::sh -c touch% /tmp/x',
       'git@evil.example:lunoapp/x.git',
       'git@github:someone/x.git',
+      'git@github-evil:lunoapp/x.git',
+      'git@github.com.evil:lunoapp/x.git',
+      'ssh://git@github-attacker/lunoapp/x.git',
+      'git@github-luno:lunoapp/x.git;touch',
     ]) {
       const f = cloneFixture();
       git(f.clone, 'config', 'remote.origin.url', url);
@@ -187,5 +208,21 @@ describe('clone-git-guard.sh', () => {
     const f = cloneFixture();
     fs.writeFileSync(path.join(f.clone, '.git', 'commondir'), f.root);
     expect(runGuarded(f, 'true').status).not.toBe(0);
+  });
+
+  it('refuses a non-empty .git/info/attributes', () => {
+    const f = cloneFixture();
+    fs.mkdirSync(path.join(f.clone, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(f.clone, '.git', 'info', 'attributes'), '* filter=evil\n');
+    const res = runGuarded(f, 'true');
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/info\/attributes/);
+  });
+
+  it('accepts an empty .git/info/attributes', () => {
+    const f = cloneFixture();
+    fs.mkdirSync(path.join(f.clone, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(f.clone, '.git', 'info', 'attributes'), '');
+    expect(runGuarded(f, 'true').status).toBe(0);
   });
 });

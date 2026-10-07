@@ -41,6 +41,10 @@ git() {
     -c fetch.recurseSubmodules=false \
     -c diff.ignoreSubmodules=all \
     -c status.submoduleSummary=false \
+    -c core.worktree= \
+    -c core.attributesFile=/dev/null \
+    -c merge.verifySignatures=false \
+    -c gpg.program=false \
     "$@"
 }
 
@@ -50,9 +54,10 @@ git() {
 # keys lower-cased. core.ignorecase/precomposeunicode are written on macOS.
 CLONE_CONFIG_ALLOWLIST='^(remote\.[^.]+\.(url|fetch|pushurl)|branch\.[^.]+\.(remote|merge)|core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|hookspath)|user\.(name|email))$'
 
-# ssh GitHub remotes of the owners the server pulls from, through a host alias
-# in ~/.ssh/config (github, github-luno, github-prema …).
-CLONE_URL_PATTERN='^(git@github[-a-z]*:(lunoapp|Prema-Rising)/[A-Za-z0-9._-]+|ssh://git@github[-a-z.]*/(lunoapp|Prema-Rising)/[A-Za-z0-9._-]+)$'
+# ssh GitHub remotes of the owners the server pulls from: github.com itself or
+# one of the host aliases in the nanoclaw user's ~/.ssh/config, each of which
+# carries its own deploy key. Exact names, no wildcard.
+CLONE_URL_PATTERN='^(git@(github\.com|github-luno|github-prema):|ssh://git@(github\.com|github-luno|github-prema)/)(lunoapp|Prema-Rising)/[A-Za-z0-9._-]+$'
 
 guard_clone() {
   local dir="$1"
@@ -62,6 +67,12 @@ guard_clone() {
   fi
   if [ -e "$dir/.git/commondir" ]; then
     echo "refusing: $dir/.git/commondir redirects the repository" >&2
+    return 1
+  fi
+  # Attributes name filter and diff drivers; config cannot define one past the
+  # allowlist, but an attributes file is where an agent would start.
+  if [ -s "$dir/.git/info/attributes" ] || [ -L "$dir/.git/info/attributes" ]; then
+    echo "refusing: $dir/.git/info/attributes is not empty" >&2
     return 1
   fi
   local keys bad
