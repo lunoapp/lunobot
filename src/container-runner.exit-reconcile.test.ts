@@ -127,4 +127,16 @@ describe('container exit hands the session to reconcile', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(enqueued.map((e) => e.sessionId)).not.toContain('sess-1');
   });
+
+  it('does not hurry a container the host stopped itself', async () => {
+    snapshots.push({ handle: fakeHandle('sess-1', 'container-a'), phase: 'running' } as SupervisedSnapshot);
+    await adoptRunningSessions();
+
+    killContainer('sess-1', 'test-stop');
+    endContainer!();
+
+    await vi.waitFor(() => expect(isContainerRunning('sess-1')).toBe(false));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(enqueued.map((e) => e.sessionId)).not.toContain('sess-1');
+  });
 });

@@ -109,6 +109,11 @@ describe('clone-git-guard.sh', () => {
       'git@github-prema:Prema-Rising/premarising.com',
       'ssh://git@github-luno/lunoapp/luno.git',
       'ssh://git@github.com/Prema-Rising/premarising.com',
+      // The server's clones as they are configured today (the alias carries the user):
+      'git@github-luno:lunoapp/lunobot.git',
+      'github-social:lunoapp/social.git',
+      'github-luno:lunoapp/luno.git',
+      'git@github-prema:Prema-Rising/premarising.com.git',
     ]) {
       const f = cloneFixture();
       git(f.clone, 'config', 'remote.origin.url', url);
@@ -131,6 +136,8 @@ describe('clone-git-guard.sh', () => {
       'git@github.com.evil:lunoapp/x.git',
       'ssh://git@github-attacker/lunoapp/x.git',
       'git@github-luno:lunoapp/x.git;touch',
+      'github-evil:lunoapp/x.git',
+      'evil@github-luno:lunoapp/x.git',
     ]) {
       const f = cloneFixture();
       git(f.clone, 'config', 'remote.origin.url', url);

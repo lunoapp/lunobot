@@ -56,8 +56,9 @@ CLONE_CONFIG_ALLOWLIST='^(remote\.[^.]+\.(url|fetch|pushurl)|branch\.[^.]+\.(rem
 
 # ssh GitHub remotes of the owners the server pulls from: github.com itself or
 # one of the host aliases in the nanoclaw user's ~/.ssh/config, each of which
-# carries its own deploy key. Exact names, no wildcard.
-CLONE_URL_PATTERN='^(git@(github\.com|github-luno|github-prema):|ssh://git@(github\.com|github-luno|github-prema)/)(lunoapp|Prema-Rising)/[A-Za-z0-9._-]+$'
+# carries its own deploy key and may supply the user itself. Exact names, no
+# wildcard.
+CLONE_URL_PATTERN='^((git@)?(github\.com|github-luno|github-prema|github-social):|ssh://(git@)?(github\.com|github-luno|github-prema|github-social)/)(lunoapp|Prema-Rising)/[A-Za-z0-9._-]+$'
 
 guard_clone() {
   local dir="$1"
