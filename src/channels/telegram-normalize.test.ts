@@ -60,6 +60,17 @@ describe('normalizeTelegramOutbound', () => {
     });
   });
 
+  it('leaves text that already contains the mask character as it was', () => {
+    const text = 'id \uE0007\uE000 stays';
+    expect(normalizeTelegramOutbound(text)).toBe(text);
+  });
+
+  it('turns headings into bold only up to three spaces of indent', () => {
+    expect(normalizeTelegramOutbound('   # Titel')).toBe('**Titel**');
+    // Four spaces make an indented code block, where a "#" is content.
+    expect(normalizeTelegramOutbound('    # comment')).toBe('    # comment');
+  });
+
   it('is a no-op on empty input', () => {
     expect(normalizeTelegramOutbound('')).toBe('');
   });

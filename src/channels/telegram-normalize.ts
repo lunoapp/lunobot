@@ -24,7 +24,8 @@
  *                                hashtag line is exactly that.
  */
 const CODE_PATTERN = /```[\s\S]*?```|`[^`\n]*`/g;
-const HEADING_PATTERN = /^[ \t]*#{1,6}[ \t]+(.+?)[ \t]*$/gm;
+// At most three spaces of indent, as for hashtags below: four make a code block.
+const HEADING_PATTERN = /^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*$/gm;
 const BULLET_LINE_PATTERN = /^([ \t]*)•[ \t]+/gm;
 // At most three spaces: four make an indented code block, where "\#" would show.
 const LINE_HASHTAG_PATTERN = /^( {0,3})#(?=[^\s#])/gm;
@@ -45,5 +46,7 @@ export function normalizeTelegramOutbound(text: string): string {
   out = out.replace(BULLET_LINE_PATTERN, '$1- '); // 3. "•" → Markdown list item
   out = out.replace(LINE_HASHTAG_PATTERN, '$1\\#'); // 4. hashtag at line start → escaped
 
-  return out.replace(MASK_PATTERN, (_, i: string) => code[Number(i)]);
+  // A mask the agent's own text happened to contain has no code behind it and
+  // stays as it was.
+  return out.replace(MASK_PATTERN, (match, i: string) => code[Number(i)] ?? match);
 }
