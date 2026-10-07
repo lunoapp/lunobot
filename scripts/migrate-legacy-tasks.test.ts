@@ -17,6 +17,7 @@ vi.mock('../src/config.js', async () => {
 vi.mock('../src/log.js', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), fatal: vi.fn() },
 }));
+import { log } from '../src/log.js';
 
 import { closeDb, createAgentGroup, initDb, runMigrations } from '../src/db/index.js';
 import { createSession } from '../src/db/sessions.js';
@@ -28,6 +29,8 @@ import { applyLegacyTaskCancellation, findLegacyTasks } from './migrate-legacy-t
 const AG = 'ag-luno';
 const CHAT = 'sess-chat';
 const TASKS = 'sess-series';
+// A session folder the central DB knows nothing about.
+const ORPHAN = 'sess-orphan';
 
 function session(id: string, threadId: string | null): Session {
   return {
@@ -96,7 +99,23 @@ beforeAll(async () => {
   task(CHAT, { id: 'once', series: 'once', status: 'pending', recurrence: null });
   task(CHAT, { id: 'gone', series: 'gone', status: 'cancelled', recurrence: null });
   task(TASKS, { id: 'new-1', series: 'new-series', status: 'pending', recurrence: daily });
+  task(ORPHAN, { id: 'or-1', series: 'or', status: 'pending', recurrence: daily });
 });
+
+function setLiveHost(live: boolean) {
+  const db = new Database(path.join(TEST_DIR, 'v2.db'));
+  try {
+    db.prepare('DELETE FROM host_instances').run();
+    if (live) {
+      db.prepare(
+        `INSERT INTO host_instances (instance_id, install_id, hostname, pid, started_at, lease_expires_at)
+         VALUES ('h1', 'i1', 'luno', 4242, ?, ?)`,
+      ).run(new Date().toISOString(), new Date(Date.now() + 60_000).toISOString());
+    }
+  } finally {
+    db.close();
+  }
+}
 
 afterAll(() => {
   fs.rmSync(TEST_DIR, { recursive: true, force: true });
@@ -121,6 +140,24 @@ describe('findLegacyTasks (dry run)', () => {
   it('changes nothing', () => {
     expect(rows(CHAT)['mc-3']).toEqual({ status: 'pending', recurrence: '0 9 * * *' });
   });
+
+  it('skips a session folder without a central sessions row, and names it', async () => {
+    const found = await findLegacyTasks();
+    expect(found.some((t) => t.sessionId === ORPHAN)).toBe(false);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('no sessions row'),
+      expect.objectContaining({ sessionId: ORPHAN }),
+    );
+  });
+});
+
+describe('applyLegacyTaskCancellation while the host runs', () => {
+  it('refuses while a host instance holds a live lease, and changes nothing', async () => {
+    setLiveHost(true);
+    await expect(applyLegacyTaskCancellation()).rejects.toThrow(/host is running/);
+    expect(rows(CHAT)['mc-3']).toEqual({ status: 'pending', recurrence: '0 9 * * *' });
+    setLiveHost(false);
+  });
 });
 
 describe('applyLegacyTaskCancellation', () => {
@@ -139,6 +176,7 @@ describe('applyLegacyTaskCancellation', () => {
     expect(chat['mc-1']).toEqual({ status: 'completed', recurrence: '0 9 * * *' });
     expect(chat['once']).toEqual({ status: 'pending', recurrence: null });
     expect(rows(TASKS)['new-1']).toEqual({ status: 'pending', recurrence: '0 9 * * *' });
+    expect(rows(ORPHAN)['or-1']).toEqual({ status: 'pending', recurrence: '0 9 * * *' });
 
     expect(await findLegacyTasks()).toEqual([]);
   });

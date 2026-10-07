@@ -2,7 +2,7 @@
  * scripts/migrate-legacy-tasks.ts — find and disarm scheduled tasks that still
  * live in chat sessions.
  *
- * Usage (on the server, as the nanoclaw user, service stopped or idle):
+ * Usage (on the server, as the nanoclaw user; --apply needs the service stopped):
  *   pnpm exec tsx scripts/migrate-legacy-tasks.ts           # dry run: list them
  *   pnpm exec tsx scripts/migrate-legacy-tasks.ts --apply   # disarm them
  *
@@ -24,6 +24,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 
 import { DATA_DIR } from '../src/config.js';
+import { log } from '../src/log.js';
 import { isTaskThread } from '../src/db/sessions.js';
 import { cancelTask } from '../src/mailbox/sqlite/tasks.js';
 
@@ -59,7 +60,7 @@ function sessionDirs(): SessionDir[] {
   return out;
 }
 
-/** Session id → thread id, from the central DB. A session missing there counts as a chat session. */
+/** Session id → thread id, from the central DB. */
 function sessionThreads(): Map<string, string | null> {
   const db = new Database(path.join(DATA_DIR, 'v2.db'), { readonly: true, fileMustExist: true });
   try {
@@ -114,9 +115,44 @@ function legacyIn(db: Database.Database, dir: SessionDir): LegacyTask[] {
   }));
 }
 
+/**
+ * Session folders that belong to a known chat session. A folder without a
+ * central `sessions` row is skipped: whether it was a chat or a task session
+ * cannot be told, and an unknown series is not this script's to cancel.
+ */
 function chatSessionDirs(): SessionDir[] {
   const threads = sessionThreads();
-  return sessionDirs().filter((d) => !isTaskThread(threads.get(d.sessionId) ?? null));
+  return sessionDirs().filter((d) => {
+    if (!threads.has(d.sessionId)) {
+      log.warn('Skipping session folder with no sessions row in the central DB', {
+        agentGroupId: d.agentGroupId,
+        sessionId: d.sessionId,
+      });
+      return false;
+    }
+    return !isTaskThread(threads.get(d.sessionId) ?? null);
+  });
+}
+
+/**
+ * A running host writes these mailboxes and re-arms recurring tasks as they
+ * complete, so --apply would race it. The host's own liveness record is the
+ * check: a `host_instances` row with a lease still ahead and no stop mark
+ * (the same rule as listLiveHostInstances in src/db/coordination.ts).
+ */
+function assertHostStopped(): void {
+  const db = new Database(path.join(DATA_DIR, 'v2.db'), { readonly: true, fileMustExist: true });
+  try {
+    const live = db
+      .prepare('SELECT instance_id, pid FROM host_instances WHERE stopped_at IS NULL AND lease_expires_at > ?')
+      .all(new Date().toISOString()) as Array<{ instance_id: string; pid: number | null }>;
+    if (live.length > 0) {
+      const who = live.map((h) => `${h.instance_id}${h.pid ? ` (pid ${h.pid})` : ''}`).join(', ');
+      throw new Error(`The NanoClaw host is running (${who}). Stop the service, then rerun --apply.`);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 export async function findLegacyTasks(): Promise<LegacyTask[]> {
@@ -133,6 +169,7 @@ export async function findLegacyTasks(): Promise<LegacyTask[]> {
 }
 
 export async function applyLegacyTaskCancellation(): Promise<{ rows: number; tasks: LegacyTask[] }> {
+  assertHostStopped();
   const tasks: LegacyTask[] = [];
   let changed = 0;
   for (const dir of chatSessionDirs()) {
@@ -174,9 +211,14 @@ function print(tasks: LegacyTask[]): void {
 
 if (process.argv[1] && /migrate-legacy-tasks\.ts$/.test(process.argv[1])) {
   if (process.argv.includes('--apply')) {
-    const { rows, tasks } = await applyLegacyTaskCancellation();
-    print(tasks);
-    console.log(`Disarmed ${tasks.length} legacy series (${rows} rows changed).`);
+    try {
+      const { rows, tasks } = await applyLegacyTaskCancellation();
+      print(tasks);
+      console.log(`Disarmed ${tasks.length} legacy series (${rows} rows changed).`);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
   } else {
     const tasks = await findLegacyTasks();
     print(tasks);
