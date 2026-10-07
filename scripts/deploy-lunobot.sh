@@ -85,6 +85,31 @@ if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
   exit 1
 fi
 
+# Maintenance window: the host service is stopped for the rest of the deploy.
+# The clone guard is only sound while nothing can spawn a container into a
+# clone mid-update, and a running host would do exactly that for the next
+# inbound message or due task. The trap starts the service again however the
+# script ends, so a failing step never leaves the bot down. (The host's own
+# code is not rebuilt here; code changes go through the routine update in
+# docs/FORK-MAINTENANCE.md.)
+SERVICE="nanoclaw-v2-$INSTALL_SLUG"
+user_systemctl() {
+  ssh -n "$SERVER" "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw -c 'systemctl --user $1 $SERVICE'"
+}
+restart_service() {
+  local status=$?
+  echo "→ starting $SERVICE"
+  if ! user_systemctl start; then
+    echo "Could not start $SERVICE on $SERVER — start it by hand:" >&2
+    echo "  ssh $SERVER \"XDG_RUNTIME_DIR=/run/user/\\\$(id -u nanoclaw) su -s /bin/bash nanoclaw -c 'systemctl --user start $SERVICE'\"" >&2
+    exit 1
+  fi
+  exit "$status"
+}
+echo "→ stopping $SERVICE"
+trap restart_service EXIT
+user_systemctl stop
+
 echo "→ pulling on $SERVER"
 in_clone "$PROJECT" 'fetch_main && git merge --ff-only --quiet origin/main'
 
@@ -96,7 +121,8 @@ if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then
 fi
 
 # Always, before the clones: an agent writing into a clone while git updates
-# it races the update. A stopped container respawns on the next message.
+# it races the update. With the service stopped nothing respawns one until the
+# trap starts it again; the next message then spawns a fresh container.
 {
   # Docker runs as root here, as in docs/FORK-MAINTENANCE.md. Listing and
   # stopping stay separate calls: in a `ps | xargs stop` pipeline a failing
@@ -118,8 +144,8 @@ fi
   fi
 }
 
-# Clones come after the stop, so no agent that was running is still writing
-# into one; a message arriving in between can spawn a new one.
+# Clones come after both stops, so no agent is writing into one and none can
+# start until the deploy ends.
 #
 # A failing clone is reported, not fatal: the bot is already pulled, and the
 # steps around it must still run.

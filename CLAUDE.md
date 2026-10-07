@@ -27,7 +27,7 @@ The host is a single Node process that orchestrates per-session agent containers
 
 Lunobot's behaviour is a text file, not code: `container/skills/lunobot-persona/instructions.md`. Edit it there — a rule stated anywhere else loses against it (see [docs/claude-md-composition.md](docs/claude-md-composition.md)).
 
-**An edit is not deployed until `scripts/deploy-lunobot.sh` has run.** Commit, push, then run it: it pulls on the server, which is what puts the edited files where the bot reads them, and stops the agent containers, so the next message spawns one that builds its system prompt from the new files.
+**An edit is not deployed until `scripts/deploy-lunobot.sh` has run.** Commit, push, then run it: it pulls on the server, which is what puts the edited files where the bot reads them, with the service and the agent containers stopped, then restarts the service, so the next message spawns a container that builds its system prompt from the new files.
 
 `--clear` on top wipes that group's conversation. Reach for it only when the running thread is itself the problem: the old rule quoted back, a wrong answer already given, a habit formed under it. It is not the default, because it costs whoever is in that chat their thread — and for an edited rule a restart already does the job.
 

@@ -39,7 +39,7 @@ This fork runs **exclusively on a Linux server (Hetzner) with Docker**. There is
 - **Server pulls over SSH** — `origin` is `git@github-luno:lunoapp/lunobot.git`; the `github-luno` alias in `~/.ssh/config` carries the deploy key. The `nanoclaw` user has no HTTPS credentials, so an `https://` remote makes step 8 below fail with `could not read Username`.
 - **Old v1 install** still lives at `/home/nanoclaw/nanoclaw` (untouched, available for rollback).
 - **luno repo mount** — bot reads canonical product docs from `/workspace/extra/luno/`, a per-group additional mount in the group's container config (`ncl groups config add-mount`). Server has the luno repo cloned at `/home/nanoclaw/luno` via SSH deploy key (`~/.ssh/luno_deploy_key`).
-- **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only), `/home/nanoclaw/.config/google-docs-mcp` (read-only) `/home/nanoclaw/social` (read-write) and `/home/nanoclaw/premarising` (read-write). A mount outside it is dropped with a warn-level `Additional mount REJECTED`. The host caches the file for its lifetime and checks mounts only when it creates a container, so an edit needs a service restart and then a container stop (any `deploy-lunobot.sh` run); either alone is not enough.
+- **Mount allowlist** — `~/.config/nanoclaw/mount-allowlist.json` on server allows `/home/nanoclaw/luno` (read-only), `/home/nanoclaw/.config/google-docs-mcp` (read-only) `/home/nanoclaw/social` (read-write) and `/home/nanoclaw/premarising` (read-write). A mount outside it is dropped with a warn-level `Additional mount REJECTED`. The host caches the file for its lifetime and checks mounts only when it creates a container, so an edit needs a service restart and a container stop — any `deploy-lunobot.sh` run does both.
 - **Whisper.cpp on host** — model at `/home/nanoclaw/nanoclaw/data/models/ggml-base.bin`, binary at `/usr/local/bin/whisper-cli`. `WHISPER_*` env vars in v2's `.env`.
 - **Owner role**: the operator's Telegram identity is the global owner, via the `user_roles` table. The concrete id lives in the database, not in this repo.
 - **Service**: systemd user unit `nanoclaw-v2-1e478a5f` (slug = sha1(project_root)[:8]). Runs with `KillMode=process`, so a restart takes down the host process only — agent containers it spawned stay alive on purpose.
@@ -107,11 +107,14 @@ ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw 
 
 ### Deploying an instruction change (persona, skill text)
 
-`scripts/deploy-lunobot.sh` — pulls on the server, stops this install's agent
-containers, resets `social` and fast-forwards `luno` and `premarising`; a clone it
-cannot update is reported and the script exits 1. The stop comes before the clones
-because agents write into them, and it puts edited rules in force: the next
-message spawns a container that composes its prompt from the new files. Every git
+`scripts/deploy-lunobot.sh` — a short maintenance window. It stops the host
+service and this install's agent containers, pulls on the server, resets `social`
+and fast-forwards `luno` and `premarising`, and starts the service again — from an
+exit trap, so a failing step never leaves the bot down. A clone it cannot update is
+reported and the script exits 1. With the service stopped, nothing can spawn a
+container into a clone while git updates it; messages that arrive meanwhile wait
+in their sessions. The restart also puts edited rules in force: the next message
+spawns a container that composes its prompt from the new files. Every git
 call on the server runs behind `scripts/clone-git-guard.sh`, because the clones are
 agent-writable, `.git` included. `--clear` also wipes the conversation. Background and the failure mode
 it prevents: [docs/claude-md-composition.md](claude-md-composition.md), "Reload
