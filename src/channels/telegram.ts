@@ -14,7 +14,12 @@ import { createTelegramAdapter } from '@chat-adapter/telegram';
 
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
-import { createMessagingGroup, getMessagingGroupByPlatform, updateMessagingGroup } from '../db/messaging-groups.js';
+import {
+  createMessagingGroup,
+  getMessagingGroupByPlatform,
+  getMessagingGroupWithAgentCount,
+  updateMessagingGroup,
+} from '../db/messaging-groups.js';
 import { grantRole, hasAnyOwner, isGlobalAdmin, isOwner } from '../modules/permissions/db/user-roles.js';
 import { upsertUser } from '../modules/permissions/db/users.js';
 import { createChatSdkBridge, type ReplyContext } from './chat-sdk-bridge.js';
@@ -24,6 +29,7 @@ import type { ChannelAdapter, ChannelDefaults, ChannelSetup, InboundMessage } fr
 import { tryConsume } from './telegram-pairing.js';
 // skill/voice-transcription
 import { transcribeAudioBuffer } from '../transcription.js';
+import { createVoiceInterceptor } from '../voice-transcription.js';
 
 /**
  * Dedicated bot identity, non-threaded platform (supportsThreads:false), so
@@ -206,44 +212,6 @@ async function sendPairingConfirmation(token: string, platformId: string): Promi
   await sendTelegramMessage(token, platformId, {
     text: 'Pairing success! Head back to the NanoClaw installer to finish setup.',
   });
-}
-
-// skill/voice-transcription — wrap onInbound to transcribe Telegram voice
-// messages via local whisper.cpp before they reach the host router. Voice
-// notes arrive as audio/* attachments with base64 `data` (chat-sdk-bridge
-// already downloaded them). We decode, pipe through whisper, and prepend
-// the transcript to the message text. The raw audio attachment is left in
-// place so the agent can still reference the file if needed.
-function createTranscriptionInterceptor(hostOnInbound: ChannelSetup['onInbound']): ChannelSetup['onInbound'] {
-  return async (platformId, threadId, message) => {
-    try {
-      if (message.kind === 'chat-sdk' && message.content && typeof message.content === 'object') {
-        const content = message.content as Record<string, unknown>;
-        const attachments = Array.isArray(content.attachments)
-          ? (content.attachments as Array<Record<string, unknown>>)
-          : [];
-        const voice = attachments.find((a) => {
-          const mime = typeof a.mimeType === 'string' ? a.mimeType : '';
-          const type = typeof a.type === 'string' ? a.type : '';
-          return mime.startsWith('audio/') || type === 'audio' || type === 'voice';
-        });
-        if (voice && typeof voice.data === 'string') {
-          const buf = Buffer.from(voice.data, 'base64');
-          const transcript = await transcribeAudioBuffer(buf);
-          if (transcript) {
-            const original = typeof content.text === 'string' ? content.text : '';
-            content.text = original
-              ? `[Voice transcript] ${transcript}\n\n${original}`
-              : `[Voice transcript] ${transcript}`;
-            log.info('Telegram voice transcribed', { length: transcript.length });
-          }
-        }
-      }
-    } catch (err) {
-      log.warn('Voice transcription failed — passing message through', { err });
-    }
-    await hostOnInbound(platformId, threadId, message);
-  };
 }
 
 /**
@@ -461,8 +429,15 @@ export function createTelegramBridge(options: TelegramBridgeOptions = {}): Chann
         ...hostConfig,
         onInbound: createTelegramInboundInterceptor(
           botUsernamePromise,
-          // skill/voice-transcription
-          createTranscriptionInterceptor(hostConfig.onInbound),
+          // skill/voice-transcription — after pairing, before the router.
+          createVoiceInterceptor(hostConfig.onInbound, {
+            transcribe: transcribeAudioBuffer,
+            // The router's first drop decision: no wired agent, or denied.
+            isWired: async (platformId) => {
+              const found = await getMessagingGroupWithAgentCount('telegram', platformId, instanceKey);
+              return found !== null && found.agentCount > 0 && !found.mg.denied_at;
+            },
+          }),
           token,
           instanceKey,
         ),
