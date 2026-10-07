@@ -29,6 +29,8 @@ import { getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars } from './db/container-configs.js';
 // skill/image-self-heal
 import { CONTAINER_RUNTIME_BIN, ensureAgentImage } from './container-runtime.js';
+// skill/github-app
+import { githubTokenEnv } from './github-app-token.js';
 import { composeGroupProjectDoc, DEFAULT_PROJECT_DOC } from './project-doc-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import {
@@ -430,6 +432,8 @@ async function spawnContainer(session: Session): Promise<void> {
       contribution,
       gateway,
       mailboxEnvironment,
+      // skill/github-app
+      extraEnv: await githubTokenEnv(agentGroup.name, sessionDir(agentGroup.id, session.id)),
     });
 
     log.info('Spawning session', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
@@ -1238,6 +1242,12 @@ export interface ComposeSessionSpecInput {
   gateway: GatewayContribution;
   /** Non-secret configuration supplied by the selected mailbox implementation. */
   mailboxEnvironment: Record<string, string>;
+  /**
+   * skill/github-app — fork-owned env for the agent container. Goes through
+   * the same admission as everything in `env`, so it carries references
+   * (paths), never credential values.
+   */
+  extraEnv?: Record<string, string>;
 }
 
 /**
@@ -1263,6 +1273,7 @@ export function composeSessionSpec(input: ComposeSessionSpecInput): SessionSpec 
 
   const env: Record<string, string> = {
     TZ: containerConfig.timezone ?? TIMEZONE,
+    ...(input.extraEnv ?? {}),
     ...mailboxEnvironment,
   };
   // The contributed lane (ContainerSpec.contributedEnv): registry-sourced env,

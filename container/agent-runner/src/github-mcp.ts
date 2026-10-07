@@ -1,0 +1,40 @@
+/**
+ * skill/github-app — GitHub's official MCP server, enabled only when the host
+ * left a GitHub App installation token for this session (src/github-app-token.ts).
+ *
+ * The token arrives by reference: GITHUB_TOKEN_FILE names a file in the
+ * session directory, because the host's admission policy keeps credential
+ * values out of container env. It is read here and handed to the MCP server's
+ * own process env. Token scope is capped by the App (issues:write,
+ * contents:read), so the toolset list is just an ergonomic default; anything
+ * beyond the App's grant fails server-side. The OneCLI proxy and CA env are
+ * forwarded so api.github.com calls pass the gateway and trust its MITM cert
+ * (Go honours SSL_CERT_FILE).
+ */
+import fs from 'fs';
+
+import type { McpServerConfig } from './providers/types.js';
+
+export function githubMcpServer(
+  env: Record<string, string | undefined>,
+): (McpServerConfig & { env: Record<string, string> }) | undefined {
+  const file = env.GITHUB_TOKEN_FILE;
+  if (!file) return undefined;
+  let token: string;
+  try {
+    token = fs.readFileSync(file, 'utf8').trim();
+  } catch {
+    return undefined;
+  }
+  if (!token) return undefined;
+
+  const ghEnv: Record<string, string> = {
+    GITHUB_PERSONAL_ACCESS_TOKEN: token,
+    GITHUB_TOOLSETS: 'repos,issues,context',
+  };
+  for (const k of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_FILE']) {
+    const value = env[k];
+    if (value) ghEnv[k] = value;
+  }
+  return { command: 'github-mcp-server', args: ['stdio'], env: ghEnv };
+}

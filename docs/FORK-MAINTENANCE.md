@@ -159,14 +159,20 @@ static secrets into HTTP requests it can see, and neither of these fits that.
 The bot acts as the `hiluno-bot` GitHub App — it reads the org and opens issues
 under its own bot identity rather than as a person. Wiring:
 
-- The App's **private key never enters the container**. `mintGithubAppToken()` in
-  `src/container-runner.ts` signs a JWT host-side, exchanges it for a 1-hour
-  installation token, and injects only that token as
-  `GITHUB_PERSONAL_ACCESS_TOKEN`. App id and installation id come from `.env`.
-- The agent-runner enables `github/github-mcp-server` (toolsets `repos`, `issues`,
-  `context`) **iff** that variable is present, so an unconfigured install just
-  runs without the tool.
-- Which groups get it is the `GITHUB_ENABLED_GROUPS` set in `container-runner.ts`.
+- The App's **private key never enters the container**. `src/github-app-token.ts`
+  signs a JWT host-side and exchanges it for a 1-hour installation token on every
+  spawn. App id and installation id come from `.env`.
+- The token reaches the container **by reference**. The host writes it `0600` to
+  `.github-token` in the session directory (mounted at `/workspace`) and sets only
+  `GITHUB_TOKEN_FILE=/workspace/.github-token`. A token value in env would be
+  refused: the driver's admission policy denies credential values in container env
+  and exempts absolute paths (`isSecretShaped` in `src/drivers/types.ts`).
+  `src/github-app-token.test.ts` pins both halves against the real policy.
+- The agent-runner (`container/agent-runner/src/github-mcp.ts`) reads the file and
+  starts `github/github-mcp-server` (toolsets `repos`, `issues`, `context`) with
+  the token in that server's own env — **iff** the file is readable and non-empty,
+  so an unconfigured install just runs without the tool.
+- Which groups get it is the `GITHUB_ENABLED_GROUPS` set in `github-app-token.ts`.
   The App itself is installed on one repository, so the set can only narrow what
   the App already permits, never widen it.
 
