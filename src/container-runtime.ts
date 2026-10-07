@@ -57,14 +57,34 @@ function inspectImage(image: string): Promise<ImagePresence> {
   });
 }
 
-function buildImage(tag: string): Promise<void> {
+/**
+ * Run container/build.sh (or a stand-in) as the leader of its own process
+ * group, so a timeout takes down `docker build` and everything else it
+ * started, not only the shell. Output streams to the service log as it comes.
+ */
+export function runBuildScript(opts: {
+  script: string;
+  tag: string;
+  cwd: string;
+  timeoutMs: number;
+  stdio?: 'inherit' | 'ignore';
+}): Promise<void> {
   return new Promise((resolve, reject) => {
-    // Output goes to the service log as it streams, not into host memory.
-    const child = spawn('bash', [path.join(PROJECT_ROOT, 'container', 'build.sh'), 'build', tag], {
-      cwd: PROJECT_ROOT,
-      stdio: ['ignore', 'inherit', 'inherit'],
+    const out = opts.stdio ?? 'inherit';
+    const child = spawn('bash', [opts.script, 'build', opts.tag], {
+      cwd: opts.cwd,
+      stdio: ['ignore', out, out],
+      detached: true,
     });
-    const timer = setTimeout(() => child.kill('SIGTERM'), BUILD_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // group already gone
+      }
+    }, opts.timeoutMs);
     child.on('error', (err) => {
       clearTimeout(timer);
       reject(err);
@@ -72,8 +92,18 @@ function buildImage(tag: string): Promise<void> {
     child.on('exit', (code, signal) => {
       clearTimeout(timer);
       if (code === 0) resolve();
-      else reject(new Error(`container/build.sh exited ${code ?? signal}`));
+      else
+        reject(new Error(timedOut ? `build timed out after ${opts.timeoutMs} ms` : `build exited ${code ?? signal}`));
     });
+  });
+}
+
+function buildImage(tag: string): Promise<void> {
+  return runBuildScript({
+    script: path.join(PROJECT_ROOT, 'container', 'build.sh'),
+    tag,
+    cwd: PROJECT_ROOT,
+    timeoutMs: BUILD_TIMEOUT_MS,
   });
 }
 

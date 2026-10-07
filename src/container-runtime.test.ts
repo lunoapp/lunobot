@@ -99,3 +99,33 @@ describe('ensureAgentImage', () => {
     expect(d.build).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('runBuildScript', () => {
+  it('kills the whole build process group on timeout, grandchildren included', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const { runBuildScript } = await import('./container-runtime.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'self-heal-'));
+    const pidFile = path.join(dir, 'grandchild.pid');
+    const script = path.join(dir, 'build.sh');
+    // Like docker build under build.sh: the real work is a grandchild.
+    fs.writeFileSync(script, `#!/bin/bash\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`, { mode: 0o755 });
+
+    await expect(
+      runBuildScript({ script, tag: 'latest', cwd: dir, timeoutMs: 300, stdio: 'ignore' }),
+    ).rejects.toThrow();
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    await new Promise((r) => setTimeout(r, 200));
+    const alive = (() => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(alive).toBe(false);
+  });
+});
