@@ -39,8 +39,18 @@ const installedSdkVersion = (
 //
 // AskUserQuestion, EnterPlanMode and ExitPlanMode left the surface with CLI
 // 2.1.280; upstream keeps disallowing them, which costs nothing and holds if
-// a later CLI brings them back.
-const KNOWN_ABSENT: string[] = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'];
+// a later CLI brings them back. The Task* todo tools appear only when the
+// allowlist names them, which it no longer does; the disallow entries keep
+// them out should that change.
+const KNOWN_ABSENT: string[] = [
+  'AskUserQuestion',
+  'EnterPlanMode',
+  'ExitPlanMode',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
+  'TaskUpdate',
+];
 
 // Membership checks run against stable ∪ variant: a tool that flickers on
 // this pin (see dump-sdk-tools.ts header) is still a real tool.

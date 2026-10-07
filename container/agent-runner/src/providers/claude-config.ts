@@ -28,6 +28,9 @@ import type { McpServerConfig } from './types.js';
 // - ListAgents: lists Claude Code's in-session agents — the read side of the
 //   same trap. Asked whom it can message, the agent would answer from it
 //   instead of from its NanoClaw destinations.
+// - TaskCreate / TaskGet / TaskList / TaskUpdate: Claude Code's in-session
+//   todo list. Named like `ncl tasks`, they catch an agent asked to schedule
+//   something, and nothing ever runs from that list.
 // - EnterPlanMode / ExitPlanMode / EnterWorktree / ExitWorktree: Claude
 //   Code UI affordances; in a headless container they'd appear stuck.
 // - DesignSync: desktop design-tool integration — nothing to sync with in a
@@ -42,6 +45,10 @@ export const SDK_DISALLOWED_TOOLS = [
   'AskUserQuestion',
   'SendMessage',
   'ListAgents',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
+  'TaskUpdate',
   'EnterPlanMode',
   'ExitPlanMode',
   'EnterWorktree',
@@ -70,10 +77,6 @@ export const TOOL_ALLOWLIST = [
   'Grep',
   'WebSearch',
   'WebFetch',
-  'TaskCreate',
-  'TaskGet',
-  'TaskList',
-  'TaskUpdate',
   'TaskStop',
   'Skill',
   'NotebookEdit',

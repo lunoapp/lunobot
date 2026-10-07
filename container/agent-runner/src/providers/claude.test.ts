@@ -13,7 +13,10 @@ describe('claude provider tool policy', () => {
   // ListAgents (new in CLI 2.1.280) lists Claude Code's in-session agents —
   // the same name-alike trap: an agent asked "who can you message?" would
   // answer from it instead of from its NanoClaw destinations.
-  for (const builtin of ['SendMessage', 'ListAgents']) {
+  // TaskCreate/TaskGet/TaskList/TaskUpdate are Claude Code's in-session todo
+  // list. Named like `ncl tasks`, they are where an agent asked to "schedule a
+  // task" lands instead — and nothing ever runs from that list.
+  for (const builtin of ['SendMessage', 'ListAgents', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']) {
     it(`does not expose the ${builtin} builtin`, () => {
       expect(TOOL_ALLOWLIST).not.toContain(builtin);
       expect(SDK_DISALLOWED_TOOLS).toContain(builtin);
