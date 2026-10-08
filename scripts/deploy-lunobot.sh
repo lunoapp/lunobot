@@ -9,7 +9,9 @@
 #
 # Four steps, and skipping the first is why "I changed it and the bot still
 # says the old thing" keeps happening:
-#   1. the server pulls          — without it the file on the server is old
+#   1. the server pulls          — without it the file on the server is old;
+#                                  the new commit is stamped, or the host
+#                                  refuses to start
 #   2. containers stop           — always: the clones they mount read-write
 #                                  are about to change under them, and a fresh
 #                                  container composes its prompt from the new files
@@ -85,6 +87,33 @@ if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
   exit 1
 fi
 
+# The host refuses to start when its checkout differs from the commit stamped
+# in data/upgrade-state.json, so this deploy has to stamp the new commit. That
+# stamp is only honest for files read from disk at spawn time: this script
+# builds nothing, so a change to host or runner code would run unbuilt. Such a
+# range goes through the routine update in docs/FORK-MAINTENANCE.md instead,
+# and is refused here before anything on the server is touched.
+INSTRUCTION_ONLY='^(docs/|container/skills/|\.claude/|\.github/)|\.md$|\.test\.ts$|^scripts/(deploy-lunobot|clone-git-guard)\.sh$'
+read_stamp() {
+  ssh -n "$SERVER" "cat /home/nanoclaw/$PROJECT/data/upgrade-state.json" \
+    | sed -nE 's/.*"commit" *: *"([0-9a-f]{40})".*/\1/p'
+}
+STAMPED=$(read_stamp) || STAMPED=""
+if [ -z "$STAMPED" ] || ! git cat-file -e "$STAMPED^{commit}" 2>/dev/null; then
+  echo "Cannot read the server's stamped commit ('$STAMPED') — deploy aborted, nothing touched." >&2
+  exit 1
+fi
+# --no-renames: a rename lists only its destination, so a code file moved
+# under an allowlisted prefix would otherwise hide its source path.
+CHANGED=$(git diff --name-only --no-renames "$STAMPED" "$LOCAL_HEAD")
+CODE_CHANGES=$(printf '%s\n' "$CHANGED" | grep -Ev "$INSTRUCTION_ONLY" || true)
+if [ -n "$CODE_CHANGES" ]; then
+  echo "Code changed since the server's stamped commit ${STAMPED:0:8}:" >&2
+  echo "$CODE_CHANGES" | sed 's/^/  /' >&2
+  echo "This needs the routine update in docs/FORK-MAINTENANCE.md, not this script. Nothing touched." >&2
+  exit 1
+fi
+
 # Maintenance window: the host service is stopped for the rest of the deploy.
 # The clone guard is only sound while nothing can spawn a container into a
 # clone mid-update, and a running host would do exactly that for the next
@@ -117,6 +146,15 @@ in_clone "$PROJECT" 'fetch_main && git merge --ff-only --quiet origin/main'
 SERVER_HEAD=$(in_clone "$PROJECT" 'git rev-parse HEAD' | tr -d '\r\n')
 if [ "$SERVER_HEAD" != "$LOCAL_HEAD" ]; then
   echo "Server is on $SERVER_HEAD, expected $LOCAL_HEAD — deploy aborted before touching clones or sessions." >&2
+  exit 1
+fi
+echo "→ stamping $LOCAL_HEAD as the sanctioned install"
+in_clone "$PROJECT" 'PATH=$HOME/.local/bin:$PATH pnpm exec tsx scripts/upgrade-state.ts set "" deploy-lunobot >/dev/null' || true
+# Read back rather than trust the exit status: the stamp records "unknown"
+# when git fails, and an unstamped checkout keeps the host from starting.
+if [ "$(read_stamp || true)" != "$LOCAL_HEAD" ]; then
+  echo "Stamping $LOCAL_HEAD failed — the host will refuse to start. Run on $SERVER as nanoclaw in ~/$PROJECT:" >&2
+  echo "  pnpm exec tsx scripts/upgrade-state.ts set" >&2
   exit 1
 fi
 
