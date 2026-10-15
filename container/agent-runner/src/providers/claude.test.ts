@@ -23,7 +23,12 @@ describe('claude provider tool policy', () => {
     });
   }
 
-  it('keeps tools directly visible instead of deferring them behind ToolSearch', () => {
-    expect(CLAUDE_ENV_DEFAULTS.ENABLE_TOOL_SEARCH).toBe('0');
+  // Tool search stays at the CLI default: MCP tool definitions are deferred and
+  // loaded on demand instead of filling the context on every request. The
+  // allowlist must name ToolSearch, or the SDK filters it out and every
+  // deferred tool becomes unreachable.
+  it('leaves tool search at the CLI default and lets the agent reach it', () => {
+    expect(CLAUDE_ENV_DEFAULTS).not.toHaveProperty('ENABLE_TOOL_SEARCH');
+    expect(TOOL_ALLOWLIST).toContain('ToolSearch');
   });
 });

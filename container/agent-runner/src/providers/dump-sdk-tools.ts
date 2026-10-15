@@ -98,11 +98,17 @@ fs.writeFileSync(
 export const DISALLOW_PROBE = 'Workflow';
 
 /**
- * Forces tool deferral on for the control capture. The production env
- * (CLAUDE_ENV_DEFAULTS) turns it off; the control proves that a capture under
- * deferral really shows `ToolSearch`, so its absence from the production
- * capture means something. Measured on CLI 2.1.280: `true` and `1` do not
- * force deferral at this tool count, `auto:0` (threshold zero) does.
+ * The fixture records every tool by name, so the main captures pin deferral
+ * off: a deferred tool leaves the wire list. Without the pin they would rely
+ * on the CLI turning tool search off for the non-first-party capture stub.
+ */
+const DEFERRAL_OFF = { ENABLE_TOOL_SEARCH: 'false' };
+
+/**
+ * Forces tool deferral on for the control capture, so it records the deferred
+ * surface, `ToolSearch` included.
+ * Measured on CLI 2.1.280: `true` and `1` do not force deferral at this tool
+ * count, `auto:0` (threshold zero) does.
  */
 const DEFERRAL_ON = { ENABLE_TOOL_SEARCH: 'auto:0' };
 
@@ -127,7 +133,7 @@ async function capture(opts?: {
         ...process.env,
         // The runner's own env, so the capture shows the surface the agent gets.
         ...CLAUDE_ENV_DEFAULTS,
-        ...(opts?.env ?? {}),
+        ...(opts?.env ?? DEFERRAL_OFF),
         HOME,
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}/c${captureId}`,
         ANTHROPIC_API_KEY: 'fixture-dummy-key',
@@ -193,7 +199,7 @@ console.log(
       cliVersion,
       sdkVersion,
       capturedAt: new Date().toISOString(),
-      capture: `wire names; stable cores over ${ROUNDS} interleaved rounds per mode (tools=production allowlist, toolsBare=no allowedTools); variantTools=flicker set; toolsDisallowProbe=single capture with disallowedTools:[probe]; toolsDeferralControl=single capture with deferral forced on; all under CLAUDE_ENV_DEFAULTS; teams on`,
+      capture: `wire names; stable cores over ${ROUNDS} interleaved rounds per mode (tools=production allowlist, toolsBare=no allowedTools); variantTools=flicker set; toolsDisallowProbe=single capture with disallowedTools:[probe]; toolsDeferralControl=single capture with deferral forced on; all under CLAUDE_ENV_DEFAULTS, the non-control captures with deferral pinned off; teams on`,
       rounds: ROUNDS,
       disallowProbe: DISALLOW_PROBE,
       tools,

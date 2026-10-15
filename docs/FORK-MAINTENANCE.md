@@ -18,7 +18,7 @@ This document is the canonical guide for keeping the fork in sync with upstream,
 | **Avatars + research docs** | `assets/avatar-*`, `docs/council/` | Branding + multi-LLM council notes. | `main` (additive) |
 | **Diagnostics opt-out** | `.claude/skills/{migrate-nanoclaw,update-nanoclaw}/diagnostics.md` | We don't ship telemetry. | `main` (overrides upstream) |
 | **Telegram outbound normalization** | `src/channels/telegram-normalize.ts`, wired as `transformOutboundText` in `src/channels/telegram.ts` | En-dash typography, headings → bold, `•` → Markdown lists, line-leading hashtags escaped. | `main` (patches the channel adapter) |
-| **Tool-surface drift check** | `container/check-tool-surface.sh`, `container/agent-runner/src/providers/{dump-sdk-tools.ts,sdk-tools-baseline.json}` | Image build fails when the pinned Claude Code CLI offers a different tool set than recorded. Re-record the baseline after every `cli-tools.json` bump. | `main` |
+| **Tool-surface drift check** | `container/check-tool-surface.sh`, `container/agent-runner/src/providers/{dump-sdk-tools.ts,sdk-tools-baseline.json}` | Image build fails when the pinned Claude Code CLI offers a different tool set than recorded, or when forced deferral no longer surfaces `ToolSearch` (the allowlist relies on it). Re-record the baseline after every `cli-tools.json` bump. | `main` |
 
 The `// skill/voice-transcription` and `# skill/coolify-deploy` markers in the touch points make conflicts trivial to find on an upstream re-merge.
 

@@ -31,10 +31,7 @@ const installedSdkVersion = (
 ).version;
 
 /**
- * Tools kept on a list although the capture never offers them. `ToolSearch`
- * only materialises when the CLI defers tools; the runner turns deferral off
- * (ENABLE_TOOL_SEARCH=0), so it is absent from a healthy capture — its
- * reappearance means deferral came back on and belongs in a failing test.
+ * Tools kept on a list although the capture never offers them.
  */
 //
 // AskUserQuestion, EnterPlanMode and ExitPlanMode left the surface with CLI
@@ -53,8 +50,12 @@ const KNOWN_ABSENT: string[] = [
 ];
 
 // Membership checks run against stable ∪ variant: a tool that flickers on
-// this pin (see dump-sdk-tools.ts header) is still a real tool.
+// this pin (see dump-sdk-tools.ts header) is still a real tool. ToolSearch is
+// offered only while the CLI defers tools, which it never does against the
+// capture stub (see DEFERRAL_ON in dump-sdk-tools.ts); the deferral control
+// is its evidence.
 const baselineTools = new Set<string>([...baseline.tools, ...baseline.variantTools]);
+if (baseline.toolsDeferralControl.includes('ToolSearch')) baselineTools.add('ToolSearch');
 
 describe('sdk tool-surface drift guard', () => {
   it('fixture matches the pinned claude-code CLI version', () => {
@@ -87,11 +88,7 @@ describe('sdk tool-surface drift guard', () => {
     }
   });
 
-  it('tool deferral stays off — ToolSearch must not appear on the surface', () => {
-    expect(baselineTools.has('ToolSearch')).toBe(false);
-  });
-
-  it('the deferral control proves the ToolSearch guard can see deferral', () => {
+  it('the CLI offers ToolSearch once it defers tools', () => {
     expect(baseline.toolsDeferralControl).toContain('ToolSearch');
   });
 });

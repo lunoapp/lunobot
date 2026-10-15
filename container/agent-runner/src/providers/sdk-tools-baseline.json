@@ -1,8 +1,8 @@
 {
   "cliVersion": "2.1.280",
   "sdkVersion": "0.3.280",
-  "capturedAt": "2026-10-07T10:03:51.120Z",
-  "capture": "wire names; stable cores over 3 interleaved rounds per mode (tools=production allowlist, toolsBare=no allowedTools); variantTools=flicker set; toolsDisallowProbe=single capture with disallowedTools:[probe]; toolsDeferralControl=single capture with deferral forced on; all under CLAUDE_ENV_DEFAULTS; teams on",
+  "capturedAt": "2026-10-15T18:35:23.040Z",
+  "capture": "wire names; stable cores over 3 interleaved rounds per mode (tools=production allowlist, toolsBare=no allowedTools); variantTools=flicker set; toolsDisallowProbe=single capture with disallowedTools:[probe]; toolsDeferralControl=single capture with deferral forced on; all under CLAUDE_ENV_DEFAULTS, the non-control captures with deferral pinned off; teams on",
   "rounds": 3,
   "disallowProbe": "Workflow",
   "tools": [

@@ -64,9 +64,8 @@ export const SDK_DISALLOWED_TOOLS = [
 // MCP namespace not listed here.
 //
 // Every entry must name a tool the pinned CLI actually offers; claude.tools.test.ts
-// asserts that against a wire capture. `ToolSearch` is deliberately absent —
-// it only exists while the CLI defers tools, and this runner keeps deferral off
-// (ENABLE_TOOL_SEARCH=0 in claude.ts).
+// asserts that against a wire capture. `ToolSearch` must be listed: the CLI
+// defers MCP tools behind it, and without it they are unreachable.
 export const TOOL_ALLOWLIST = [
   'Agent',
   'Bash',
@@ -80,6 +79,7 @@ export const TOOL_ALLOWLIST = [
   'TaskStop',
   'Skill',
   'NotebookEdit',
+  'ToolSearch',
 ];
 
 // MCP server names are sanitized by the SDK when forming tool prefixes:

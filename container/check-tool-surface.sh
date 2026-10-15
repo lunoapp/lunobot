@@ -38,20 +38,17 @@ const baseline = load(baselinePath);
 const capture = load(capturePath);
 const surface = (c) => [...new Set([...(c.tools || []), ...(c.toolsBare || []), ...(c.variantTools || [])])].sort();
 
-// The ToolSearch guard is only real if a deferred capture would show it. The
-// control capture forces deferral; if ToolSearch is missing there, the CLI
-// changed how deferral surfaces and the guard below proves nothing.
+// The runner defers MCP tools behind ToolSearch and its allowlist names it.
+// The control capture forces deferral. If ToolSearch is missing there, either
+// DEFERRAL_ON no longer forces deferral or the CLI no longer offers ToolSearch;
+// either way the allowlist entry is unverified.
 const control = capture.toolsDeferralControl || [];
 if (!control.includes("ToolSearch")) {
-  console.error("\nTOOL SURFACE CHECK BLIND — the deferral control capture shows no ToolSearch.");
+  console.error("\nNO TOOLSEARCH — the deferral control capture shows no ToolSearch.");
   console.error("Find how this CLI version forces deferral and update DEFERRAL_ON in dump-sdk-tools.ts.\n");
   process.exit(1);
 }
 const now = surface(capture);
-if (now.includes("ToolSearch")) {
-  console.error("\nTOOL DEFERRAL IS ON — ToolSearch appears under the runner env (CLAUDE_ENV_DEFAULTS).\n");
-  process.exit(1);
-}
 
 const drift = [];
 for (const f of ["cliVersion", "sdkVersion"]) {

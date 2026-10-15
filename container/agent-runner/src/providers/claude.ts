@@ -187,16 +187,14 @@ const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WIN
 /**
  * Claude-specific env applied to every query.
  *
- * ENABLE_TOOL_SEARCH=0 keeps every tool in the model's direct tool list.
- * With tool search on, the SDK defers tools behind ToolSearch and the agent
- * has to guess which ones to load by name — it reached for the builtin
- * `SendMessage` instead of `mcp__nanoclaw__send_message` and every reply
- * vanished into an SDK team inbox. Our tool set is small enough that
- * deferral buys nothing here.
+ * Tool search stays at the CLI default: MCP tool definitions are deferred and
+ * loaded through ToolSearch when needed. With every definition loaded upfront,
+ * the MCP servers alone filled most of the context window. The name-alike
+ * builtins an agent could reach for instead of its NanoClaw tools are
+ * disallowed in claude-config.ts.
  */
 export const CLAUDE_ENV_DEFAULTS: Record<string, string> = {
   CLAUDE_CODE_AUTO_COMPACT_WINDOW,
-  ENABLE_TOOL_SEARCH: '0',
 };
 
 /**
