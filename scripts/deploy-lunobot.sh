@@ -101,8 +101,9 @@ fi
 # stamp is only honest for files read from disk at spawn time: this script
 # builds nothing, so a change to host or runner code would run unbuilt. Such a
 # range goes through the routine update in docs/FORK-MAINTENANCE.md instead,
-# and is refused here before anything on the server is touched.
-INSTRUCTION_ONLY='^(docs/|container/skills/|\.claude/|\.github/)|\.md$|\.test\.ts$|^scripts/(deploy-lunobot|clone-git-guard)\.sh$'
+# and is refused here before anything on the server is touched. Test files and
+# test-utils/ helpers count as instruction-only: only tests import them.
+INSTRUCTION_ONLY='^(docs/|container/skills/|\.claude/|\.github/)|\.md$|\.test\.ts$|^(src|container/agent-runner/src)/test-utils/|^scripts/(deploy-lunobot|clone-git-guard)\.sh$'
 read_stamp() {
   ssh -n "$SERVER" "cat /home/nanoclaw/$PROJECT/data/upgrade-state.json" \
     | sed -nE 's/.*"commit" *: *"([0-9a-f]{40})".*/\1/p'
