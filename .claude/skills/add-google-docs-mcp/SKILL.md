@@ -101,7 +101,8 @@ For each group that should get Google access:
       "env": {
         "GOOGLE_CLIENT_ID": "onecli-managed",
         "GOOGLE_CLIENT_SECRET": "onecli-managed",
-        "HOME": "/workspace/extra"
+        "HOME": "/workspace/extra",
+        "MCP_TOOL_GROUPS": "docs,drive,sheets,utils"
       }
     }
   },
@@ -116,6 +117,8 @@ For each group that should get Google access:
 ```
 
 `HOME=/workspace/extra` is what makes the MCP server resolve `~/.config/google-docs-mcp/token.json` to `/workspace/extra/.config/google-docs-mcp/token.json` — the path the mount lands at. The matching `containerPath: ".config/google-docs-mcp"` (note the subdir, not a flat name) is critical.
+
+`MCP_TOOL_GROUPS` limits the server to the tool groups the group uses. Every enabled tool's schema is sent with every request, and the full set (Gmail and Calendar included) costs context on every turn.
 
 ### 7. Cycle running containers
 
