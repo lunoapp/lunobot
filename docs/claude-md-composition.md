@@ -62,7 +62,9 @@ session, which starts from the composed document and no chat history.
 **Deploy an instruction change with `scripts/deploy-lunobot.sh`.** It pulls on the
 server with the host service and the agent containers stopped, then starts the
 service again, which is what puts an edited rule in force; `--clear` wipes the conversation and is deliberately not the default. It also updates the clones mounted into containers; exit 1 with
-"Not updated on …" means the bot is deployed and a clone is not.
+"Not updated on …" means the bot is deployed and a clone is not, and with
+"Dependencies not installed on …" that a clone is current but its `node_modules`
+may not be.
 
 ## Style, formatting and language: the persona wins
 

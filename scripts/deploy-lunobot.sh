@@ -15,13 +15,16 @@
 #   2. containers stop           — always: the clones they mount read-write
 #                                  are about to change under them, and a fresh
 #                                  container composes its prompt from the new files
-#   3. mounted clones update     — social is reset, luno and premarising are
+#   3. mounted clones update     — social is reset and its dependencies
+#                                  installed, luno and premarising are
 #                                  fast-forwarded
 #   4. the session is cleared    — only when the running conversation itself is
 #                                  the problem
 #
 # Exit 1 after step 1 with "Not updated on" means the bot is deployed and a
-# clone is not. Fix the clone; re-running with --clear does not help.
+# clone is not. Fix the clone; re-running with --clear does not help. With
+# "Dependencies not installed on" the clone is current and its node_modules may
+# not be; fix the cause and deploy again, still without --clear.
 #
 # A restarted container builds a fresh system prompt from the files on disk, so
 # edited rules are in force without a clear. What a clear removes is the
@@ -53,7 +56,13 @@ AGENT_GROUP=luno
 # erase — a fast-forward refuses instead of overwriting it.
 RESET_REPOS=(social)
 FF_REPOS=(luno premarising)
+# Clones whose node_modules an agent runs. A reset brings in a new lockfile but
+# not the packages it names, and the next build then fails on a missing module.
+DEPS_REPOS=(social)
+AGENT_IMAGE="nanoclaw-agent-v2-$INSTALL_SLUG:latest"
 FAILED_REPOS=()
+RESET_OK_REPOS=()
+FAILED_DEPS_REPOS=()
 KEPT_WORK_REPOS=()
 RESTART=0
 CLEAR=0
@@ -127,6 +136,11 @@ user_systemctl() {
 }
 restart_service() {
   local status=$?
+  # An interrupted deploy must not leave an install writing into a clone that
+  # the next agent mounts.
+  for repo in "${DEPS_REPOS[@]}"; do
+    ssh -n -o ConnectTimeout=10 "$SERVER" "docker rm -f deploy-deps-$repo" >/dev/null 2>&1 || true
+  done
   echo "→ starting $SERVICE"
   if ! user_systemctl start; then
     echo "Could not start $SERVICE on $SERVER — start it by hand:" >&2
@@ -194,8 +208,66 @@ fi
 # survive the reset; untracked ones too, unless upstream adds the same path.
 for repo in "${RESET_REPOS[@]}"; do
   echo "→ resetting $repo on $SERVER to origin/main"
-  in_clone "$repo" 'fetch_main && git reset --hard --quiet origin/main' \
-    || FAILED_REPOS+=("$repo")
+  if in_clone "$repo" 'fetch_main && git reset --hard --quiet origin/main'; then
+    RESET_OK_REPOS+=("$repo")
+  else
+    FAILED_REPOS+=("$repo")
+  fi
+done
+# Installed in a throwaway container from the agent image, never on the host:
+# node_modules is agent-writable, so a host install would run install scripts an
+# agent could have planted, as the user that runs the bot. The container gets
+# the agent containers' hardening, so code that does run there gains nothing an
+# agent lacks. Only after a successful reset, because otherwise package.json,
+# the lockfile and pnpm-workspace.yaml are whatever an agent left; never with an
+# untracked .npmrc, pnpmfile or corepack env, which survive the reset and would
+# run agent code before pnpm checks the lockfile; and from an emptied
+# node_modules, because pnpm trusts packages it finds there and runs their build
+# scripts. A symlinked node_modules is removed first: find does not descend into
+# a symlinked starting point, and pnpm would install through it. Kept are .remotion (Remotion's browser download) and .cache, which
+# pnpm never reads. The store and the corepack cache persist outside every
+# mounted clone, so an install costs seconds unless the lockfile or the pinned
+# pnpm changed; the timeout bounds how long the bot stays down.
+for repo in "${DEPS_REPOS[@]}"; do
+  # :- because bash 3.2 treats an empty array as unbound under set -u.
+  if [[ " ${RESET_OK_REPOS[*]:-} " != *" $repo "* ]]; then
+    continue
+  fi
+  echo "→ installing dependencies of $repo on $SERVER"
+  # find adds what git does not list as untracked: a FIFO under one of these
+  # names would block pnpm until the timeout.
+  if ! PLANTED=$(in_clone "$repo" "git ls-files --others -- .npmrc '.pnpmfile.*' .corepack.env '.yarnrc*' && find . -maxdepth 1 \\( -name .npmrc -o -name '.pnpmfile.*' -o -name .corepack.env -o -name '.yarnrc*' \\) ! -type f"); then
+    FAILED_DEPS_REPOS+=("$repo (clone unreadable)")
+    continue
+  fi
+  if [ -n "$PLANTED" ]; then
+    # Names come from the clone; control characters would reach the terminal.
+    echo "   refused, untracked package-manager config:" >&2
+    printf '%s\n' "$PLANTED" | LC_ALL=C tr -c '[:print:]\n' '?' | sed 's/^/     /' >&2
+    FAILED_DEPS_REPOS+=("$repo (untracked package-manager config)")
+    continue
+  fi
+  INSTALL_STATUS=0
+  INSTALL_OUTPUT=$(ssh -n "$SERVER" "su - nanoclaw -s /bin/bash -c 'mkdir -p ~/.cache/$repo-pnpm-store' && \
+    docker rm -f deploy-deps-$repo >/dev/null 2>&1; \
+    timeout -k 10 600 docker run --rm --name deploy-deps-$repo --pull=never \
+      --init --cap-drop=ALL --security-opt no-new-privileges --pids-limit 2048 --memory 2g \
+      --user \$(id -u nanoclaw):\$(id -g nanoclaw) \
+      -e HOME=/tmp -e CI=true -e npm_config_ignore_pnpmfile=true \
+      -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 -e COREPACK_HOME=/pnpm-store/corepack \
+      -e npm_config_store_dir=/pnpm-store \
+      -v /home/nanoclaw/.cache/$repo-pnpm-store:/pnpm-store \
+      -v /home/nanoclaw/$repo:/workspace/extra/$repo -w /workspace/extra/$repo \
+      --entrypoint sh $AGENT_IMAGE -c 'if [ -L node_modules ]; then rm -f node_modules; fi; mkdir -p node_modules && find node_modules -mindepth 1 -maxdepth 1 ! -name .remotion ! -name .cache -exec rm -rf {} + && pnpm install --frozen-lockfile'" 2>&1) || INSTALL_STATUS=$?
+  if [ "$INSTALL_STATUS" -ne 0 ]; then
+    printf '%s\n' "$INSTALL_OUTPUT" | tail -n 30 | LC_ALL=C tr -c '[:print:]\n' '?' | sed 's/^/   /' >&2
+    case "$INSTALL_STATUS" in
+      124) echo "   timed out after 600 s" >&2 ;;
+      137) echo "   killed: timed out, or out of memory (limit 2 GB)" >&2 ;;
+      *) echo "   exit status $INSTALL_STATUS" >&2 ;;
+    esac
+    FAILED_DEPS_REPOS+=("$repo")
+  fi
 done
 # --no-overwrite-ignore: a fast-forward otherwise replaces an ignored file an
 # agent wrote when upstream starts tracking that path. The branch check keeps a
@@ -232,6 +304,8 @@ fi
 DONE="Done."
 if [ "${#FAILED_REPOS[@]}" -gt 0 ]; then
   DONE="Bot deployed, clones not (see below)."
+elif [ "${#FAILED_DEPS_REPOS[@]}" -gt 0 ]; then
+  DONE="Bot deployed, clone dependencies not (see below)."
 fi
 echo "$DONE The bot answers the next message with the edited instructions."
 if [ "$RESTART" = "1" ]; then
@@ -246,5 +320,12 @@ if [ "${#FAILED_REPOS[@]}" -gt 0 ]; then
   echo "Not updated on $SERVER: ${FAILED_REPOS[*]} — clone missing, fetch failed," >&2
   echo "not on main, diverged, or a local file in the way (git's message is above," >&2
   echo "if it gave one). Fix the clone; re-running with --clear does not help." >&2
+fi
+if [ "${#FAILED_DEPS_REPOS[@]}" -gt 0 ]; then
+  echo "Dependencies not installed on $SERVER: ${FAILED_DEPS_REPOS[*]} — node_modules may" >&2
+  echo "not match the lockfile, and the next build there can fail on a missing module." >&2
+  echo "The reason is printed above. Fix the cause and deploy again." >&2
+fi
+if [ "${#FAILED_REPOS[@]}" -gt 0 ] || [ "${#FAILED_DEPS_REPOS[@]}" -gt 0 ]; then
   exit 1
 fi

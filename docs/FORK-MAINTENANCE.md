@@ -124,9 +124,13 @@ ssh luno "XDG_RUNTIME_DIR=/run/user/\$(id -u nanoclaw) su -s /bin/bash nanoclaw 
 
 `scripts/deploy-lunobot.sh` — a short maintenance window. It stops the host
 service and this install's agent containers, pulls on the server, resets `social`
-and fast-forwards `luno` and `premarising`, and starts the service again — from an
-exit trap, so a failing step never leaves the bot down. A clone it cannot update is
-reported and the script exits 1. With the service stopped, nothing can spawn a
+and installs its dependencies, fast-forwards `luno` and `premarising`, and starts
+the service again — from an exit trap, so a failing step never leaves the bot down.
+A clone it cannot update, or a dependency install that fails, is reported and the
+script exits 1. The install runs in a hardened throwaway container from the agent
+image, never on the host, starts from an emptied `node_modules` and refuses a
+clone carrying an untracked `.npmrc`, pnpmfile, `.corepack.env` or `.yarnrc`. It reaches
+registry.npmjs.org only for what the store and the corepack cache do not hold yet. With the service stopped, nothing can spawn a
 container into a clone while git updates it; messages that arrive meanwhile wait
 in their sessions. The restart also puts edited rules in force: the next message
 spawns a container that composes its prompt from the new files. Every git
@@ -254,7 +258,7 @@ luno repo under `docs/tech/database.md`, "Domain semantics".
 |---|---|---|
 | `~/.ssh/luno_deploy_key`, `~/.ssh/luno_deploy_key.pub`, `~/.ssh/config` (Host `github-luno`) | nanoclaw user | SSH deploy key for the luno repo. Public key registered as deploy key on `lunoapp/luno`. |
 | `~/luno` git clone (`github-luno:lunoapp/luno`) | nanoclaw home | Mounted read-only into `telegram_main` and `telegram_jan` as `/workspace/extra/luno/`. Kept current by `/etc/cron.d/luno-repo-pull` — daily 04:15, `git pull --ff-only` as `nanoclaw`, logged to syslog under tag `luno-pull`. Also fast-forwarded by every `scripts/deploy-lunobot.sh` run. |
-| `~/social` git clone (`github-social:lunoapp/social`), Host `github-social` in `~/.ssh/config` | nanoclaw home | Mounted read-write into `telegram_main` and `telegram_jan` for the render pipeline. Reset to origin/main by every deploy. |
+| `~/social` git clone (`github-social:lunoapp/social`), Host `github-social` in `~/.ssh/config` | nanoclaw home | Mounted read-write into `telegram_main` and `telegram_jan` for the render pipeline. Reset to origin/main by every deploy, which then installs its `node_modules` (store and corepack cache in `~/.cache/social-pnpm-store`, never mounted into agents; safe to delete, the next deploy refills it). |
 | `~/premarising` git clone (`git@github-prema:Prema-Rising/premarising.com`), Host `github-prema` in `~/.ssh/config` | nanoclaw home | Mounted read-write into `telegram_prema`, with its own `node_modules` (including Remotion's headless Chrome). Read-only deploy key on `Prema-Rising/premarising.com`. Fast-forwarded by every deploy, never reset. |
 | `~/.config/nanoclaw/mount-allowlist.json` | nanoclaw config | Roots: `luno` (read-only), `.config/google-docs-mcp` (read-only), `social` (read-write), `premarising` (read-write). Cached by the host; an edit needs a service restart plus a container stop. |
 | `~/.local/bin/pnpm`, PATH update in `~/.bashrc` | nanoclaw user-local | pnpm without sudo. Install: `npm config set prefix ~/.local && npm install -g pnpm@<pinned>`. The first install leaves `.pnpm-XXX` symlinks instead of a `pnpm` one — fix with `ln -sf ~/.local/lib/node_modules/pnpm/bin/pnpm.cjs ~/.local/bin/pnpm`. |

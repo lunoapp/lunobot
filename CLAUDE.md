@@ -33,7 +33,7 @@ Lunobot's behaviour is a text file, not code: `container/skills/lunobot-persona/
 
 Never report a behaviour change as done before the deploy script has run. "Pushed" is not "deployed", and the bot is the only place the difference shows.
 
-The script also updates the clones mounted into containers (`social` reset, `luno` and `premarising` fast-forwarded). Exit 1 with "Not updated on …" means the bot is deployed and a clone is not: fix that clone, and do not re-run with `--clear`, which only costs the chat its thread.
+The script also updates the clones mounted into containers (`social` reset and its dependencies installed, `luno` and `premarising` fast-forwarded). Exit 1 with "Not updated on …" means the bot is deployed and a clone is not: fix that clone, and do not re-run with `--clear`, which only costs the chat its thread. "Dependencies not installed on …" means the clone is current but its `node_modules` may not be; fix the cause (printed above it) and deploy again, also without `--clear`.
 
 ## Entity Model
 
